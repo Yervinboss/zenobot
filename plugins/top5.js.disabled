@@ -1,0 +1,161 @@
+// Plugin Top 5 Canzoni - Carosello con Zaileys - Comando .tp
+const { exec } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const yts = require('yt-search');
+
+let zaileys = null;
+try { zaileys = require('zaileys'); } catch (e) { console.log('zaileys non disponibile:', e.message); }
+
+global.top5Selections = global.top5Selections || {};
+global.top5Choices = global.top5Choices || {};
+
+const getThumbnail = (video) => video?.thumbnail || video?.image || video?.images?.[0] || 'icone/333.jpg';
+
+const execPromise = (cmd) => new Promise((resolve, reject) => {
+    exec(cmd, { maxBuffer: 1024 * 1024 * 10 }, (err, stdout, stderr) => {
+        if (err) reject(new Error(stderr || err.message));
+        else resolve(stdout);
+    });
+});
+
+module.exports = {
+    commands: ['tp', 'top5_select', 'top5_audio', 'top5_video'],
+
+    run: async (sock, m, args, cmd) => {
+        const jid = m.key.remoteJid;
+        const sender = (m.key.participant || jid).split('@')[0];
+        const text = args.join(' ');
+
+        // ==========================================
+        // 1. COMANDO PRINCIPALE: .tp [CANTANTE]
+        // ==========================================
+        if (cmd === 'tp') {
+            if (!text) return await sock.sendMessage(jid, { text: "🎤 *Scrivi il nome di un cantante!*" }, { quoted: m });
+
+            const search = await yts(`${text} top songs`);
+            const results = search.videos.slice(0, 5);
+            if (!results.length) return await sock.sendMessage(jid, { text: "❌ Nessun brano trovato" }, { quoted: m });
+
+            global.top5Selections[sender] = results;
+
+            // Prova con Zaileys per il carosello nativo
+            if (zaileys) {
+                try {
+                    const Client = zaileys.Client || zaileys.default;
+                    const client = new Client(sock);
+
+                    const cards = results.map((video, index) => ({
+                        image: { url: getThumbnail(video) },
+                        title: video.title.substring(0, 55),
+                        body: `${video.author?.name || '—'} • ${video.timestamp || '—'}`,
+                        footer: '333 BOT',
+                        buttons: [{
+                            name: 'quick_reply',
+                            buttonParamsJson: JSON.stringify({
+                                display_text: `🎧 Seleziona ${index + 1}`,
+                                id: `.top5_select ${index + 1}`
+                            })
+                        }]
+                    }));
+
+                    await client.send(jid).carousel({
+                        text: `🔎 🔥 *Top 5 canzoni di ${text.toUpperCase()}*`,
+                        cards: cards
+                    });
+                    return;
+                } catch (e) {
+                    console.log('Zaileys carosello err:', e.message);
+                    // fallback sotto
+                }
+            }
+
+            // FALLBACK: menu testuale numerato
+            let lista = `🔎 🔥 *TOP 5 CANZONI DI ${text.toUpperCase()}*\n\n`;
+            results.forEach((v, i) => {
+                lista += `*${i + 1}.* ${v.title}\n`;
+                lista += `     📺 ${v.author?.name || '—'} • ⏱️ ${v.timestamp || '—'}\n\n`;
+            });
+            lista += `👉 Scegli con *.top5_select <n>* (1-5)`;
+
+            return await sock.sendMessage(jid, {
+                image: { url: getThumbnail(results[0]) },
+                caption: lista,
+                footer: '333 BOT',
+                nativeFlow: results.map((v, i) => ({
+                    name: 'quick_reply',
+                    buttonParamsJson: JSON.stringify({
+                        display_text: `${i + 1}`,
+                        id: `.top5_select ${i + 1}`
+                    })
+                }))
+            }, { quoted: m });
+        }
+
+        // ==========================================
+        // 2. SELEZIONE
+        // ==========================================
+        if (cmd === 'top5_select') {
+            const index = Number((text || '').trim());
+            const results = global.top5Selections[sender];
+
+            if (!results?.length) return await sock.sendMessage(jid, { text: "❌ Nessuna selezione attiva. Digita *.tp [cantante]*" }, { quoted: m });
+            if (!Number.isInteger(index) || index < 1 || index > results.length) {
+                return await sock.sendMessage(jid, { text: "❌ Selezione non valida (1-5)." }, { quoted: m });
+            }
+
+            const video = results[index - 1];
+            global.top5Choices[sender] = video;
+            delete global.top5Selections[sender];
+
+            return await sock.sendMessage(jid, {
+                image: { url: getThumbnail(video) },
+                caption: `🎶 *${video.title}*\n\n📺 ${video.author?.name || '—'}\n⏱️ ${video.timestamp || '—'}\n👁️ ${video.views?.toLocaleString() || '—'}\n\n🎧 *Scegli formato:*`,
+                footer: '333 BOT',
+                nativeFlow: [
+                    { name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: '🎧 Audio', id: '.top5_audio' }) },
+                    { name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: '🎥 Video', id: '.top5_video' }) }
+                ]
+            }, { quoted: m });
+        }
+
+        const videoScelto = global.top5Choices[sender];
+        if (!videoScelto) return await sock.sendMessage(jid, { text: "❌ Nessun brano selezionato. Avvia con .tp" }, { quoted: m });
+
+        // ==========================================
+        // 3. AUDIO
+        // ==========================================
+        if (cmd === 'top5_audio') {
+            await sock.sendMessage(jid, { text: `📥 *Scarico audio:* _${videoScelto.title}_` }, { quoted: m });
+            const fileMp3 = `./tmp_${Date.now()}.mp3`;
+            exec(`yt-dlp -x --audio-format mp3 -o "${fileMp3}" ${videoScelto.url}`, async (err) => {
+                if (err) return await sock.sendMessage(jid, { text: "❌ Errore download audio" }, { quoted: m });
+                await sock.sendMessage(jid, { audio: fs.readFileSync(fileMp3), mimetype: 'audio/mpeg' }, { quoted: m });
+                try { fs.unlinkSync(fileMp3); } catch {}
+                delete global.top5Choices[sender];
+            });
+        }
+
+        // ==========================================
+        // 4. VIDEO
+        // ==========================================
+        if (cmd === 'top5_video') {
+            if (videoScelto.seconds > 480) return await sock.sendMessage(jid, { text: "❌ Video troppo lungo (max 8 min)" }, { quoted: m });
+            await sock.sendMessage(jid, { text: `📥 *Scarico video:* _${videoScelto.title}_` }, { quoted: m });
+            const ts = Date.now();
+            const rawVideo = path.join(os.tmpdir(), `vid_raw_${ts}.mp4`);
+            const outVideo = path.join(os.tmpdir(), `vid_out_${ts}.mp4`);
+            try {
+                await execPromise(`yt-dlp --no-playlist -f "bestvideo[vcodec^=avc1][height<=480]+bestaudio[acodec^=mp4a]/best[vcodec^=avc1][height<=480]/best[height<=480]" --merge-output-format mp4 --ffmpeg-location /usr/bin/ffmpeg --no-part --retries 3 -o "${rawVideo}" "${videoScelto.url}"`);
+                await execPromise(`/usr/bin/ffmpeg -y -i "${rawVideo}" -c:v libx264 -preset ultrafast -crf 30 -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" -c:a aac -b:a 96k -movflags +faststart "${outVideo}"`);
+                try { fs.unlinkSync(rawVideo); } catch {}
+                const sizeMB = fs.statSync(outVideo).size / (1024 * 1024);
+                if (sizeMB > 64) { try { fs.unlinkSync(outVideo); } catch {}; return await sock.sendMessage(jid, { text: "❌ Video >64MB" }, { quoted: m }); }
+                await sock.sendMessage(jid, { video: fs.readFileSync(outVideo), mimetype: 'video/mp4', caption: `🎬 *${videoScelto.title}*` }, { quoted: m });
+                try { fs.unlinkSync(outVideo); } catch {}
+                delete global.top5Choices[sender];
+            } catch (e) { console.error(e); await sock.sendMessage(jid, { text: "❌ Errore video" }, { quoted: m }); }
+        }
+    }
+};
