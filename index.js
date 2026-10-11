@@ -2127,7 +2127,7 @@ async function start() {
             }
         } catch {}
 
-        if (!isOwnersender) {
+        if (!isOwner(sender)) {
             const rl = checkRateLimit(sender, cmd, 5, 10_000)
             if (rl > 0) {
                 log.warn(`⛔ rate limit su .${cmd} da @${sender} (${rl}s)`)

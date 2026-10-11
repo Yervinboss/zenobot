@@ -37,10 +37,17 @@
     "msgCacheTtlSec": 600,
     "theme": "zeno",
     "cardMode": "auto",
+    "library": "@chatunity/baileys",
+    "iosMode": "compat",
+    "compatListAd": true,
+    "compatAdCardsMax": 3,
+    "configRev": 4,
+    "nodeProfile": "full",
+    "universalTextFirst": true,
     "cardImage": "https://i.postimg.cc/266mKgQj/lv-0-20260913184208.jpg",
     "cardFooter": "ZENO ULTIMATE",
     "cardsPerPage": 10,
     "stackMax": 8,
     "botName": "ZENO ULTIMATE",
-    "version": "4.0.0"
+    "version": "4.5.0"
 }
