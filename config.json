@@ -37,7 +37,7 @@
     "msgCacheTtlSec": 600,
     "theme": "zeno",
     "cardMode": "auto",
-    "library": "@chatunity/baileys",
+    "library": "@itsliaaa/baileys",
     "iosMode": "compat",
     "compatListAd": true,
     "compatAdCardsMax": 3,

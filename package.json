@@ -12,7 +12,6 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@chatunity/baileys": "^3.3.1",
     "@hapi/boom": "^10.0.1",
     "@itsliaaa/baileys": "^0.3.18-final",
     "@kyyinfinite/baileys": "^2.1.0",
