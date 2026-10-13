@@ -45,14 +45,13 @@ const RULES = [
     ['giochi',   /^(tris|ttt|impiccato|scf|forbici|uno|bomba|indovina|quiz|trivia|labirinto|scramble|basket|mascotte|bandiera|dado|moneta|flip|math|matematica|calcio|gioca|memory|battaglia)$/],
     ['musica',   /^(song|play|spotify|lyrics|testo|ytmp3|ytmp4|youtube|yt|music|musica|video|tiktok|instagram|ig|facebook|fb|download|scarica)$/],
     ['sticker',  /^(s|sticker|stiker|toimg|tovid|attp|ttp|emojimix|take|wm|meme|memegen)$/],
-    ['owner',    /^(addowner|delowner|owner|join|leave|esci|restart|riavvia|shutdown|spegni|eval|exec|broadcast|bc|setpp|setprefix|banuser|unbanuser|premium|addprem|delprem|getplugin|update|aggiorna|backup)$/],
+    ['owner',    /^(addowner|delowner|owner|join|leave|esci|restart|riavvia|shutdown|spegni|eval|exec|broadcast|bc|bt|setpp|setprefix|banuser|unbanuser|premium|addprem|delprem|getplugin|update|aggiorna|backup|blacklist|bl|quit)$/],
     ['sistema',  /^(ping|status|stato|info|help|aiuto|uptime|speed|runtime|botinfo|infobot)$/],
     ['staff',    /^(staff)$/],
     ['assistenza', /^(assistenza|supporto|sito|canale)$/]
 ]
 
 // ── Assegnazione esplicita: comando → categoria (ha la precedenza sulle regole automatiche) ──
-//    Si può comunque spostare un comando a mano con .setcat <comando> <categoria>
 const MAP = {}
 const put = (cat, list) => list.split(/\s+/).filter(Boolean).forEach(c => { MAP[c] = cat })
 put('moderazione', 'kick warn unwarn richiamo grazia mute unmute aperto chiuso apri chiudi p promote d demote del delete tag link invito qr qrlink admin staff paneladmin antilink antispam antivoip antibot req richieste richiesta welcome setwelcome setbenvenuto testwelcome soloadmin solo setgpp gpp fotogruppo')
@@ -62,7 +61,7 @@ put('rpg',         'bal balance soldi portafoglio work bj blackjack slot ruba st
 put('musica',      'song play shazam pl tp playlist addplaylist casuale random shuffle suggerisci simili consiglia')
 put('sticker',     's sticker toaudio tomp3 mp3 audio vv tx')
 put('sistema',     'ping stats status clean pulisci clearsessions sessioni menu comandi setcat menucat')
-put('owner',       'owner setowner addowner delowner shutdown spegni stopbot blackout setbotpp botpp cambiafotobot zeno zenon zenooff nuke nukeall purge testadmin debugadmin testios ioslab')
+put('owner',       'owner setowner addowner delowner shutdown spegni stopbot blackout setbotpp botpp cambiafotobot zeno zenon zenooff nuke nukeall purge testadmin debugadmin testios ioslab quit esci leave blacklist bl bt')
 
 const primary = (p) => p.commands.find(c => typeof c === 'string') || p.name
 const keyOf = (p) => String(p.name).replace(/[.\s]/g, '_')
@@ -94,13 +93,13 @@ function effectiveCat(p, cat) {
     return 'general'
 }
 
+// ⚠️ ORA la categoria "owner" è visibile a TUTTI (il blocco avviene al click)
 function visibleCats(ctx) {
     const groups = new Map()
     for (const [cat, list] of allCategories()) {
         for (const p of list) {
             if (p.hidden || !enabled(p)) continue
             const c = effectiveCat(p, cat)
-            if (c === 'owner' && !ctx.isOwner) continue
             if (!groups.has(c)) groups.set(c, [])
             groups.get(c).push(p)
         }
@@ -112,6 +111,15 @@ function visibleCats(ctx) {
 }
 
 const info = (cat) => CAT_INFO[cat] || ['📦', 'Comandi']
+
+// 🎭 Frasi simpatiche quando un non-owner prova ad aprire la categoria OWNER
+const FRASI_VIETATE = [
+    '🚫 *ACCESSO NEGATO*\n\n_Lurido!_ Come osi entrare qui dentro senza il consenso? 🤬\n\n👑 Questa zona è solo per il *CREATORE*\n👉 Torna da dove sei venuto',
+    '🛑 *ALT LÀ!*\n\nMa guarda un po\' chi si vede... un *lurido* curioso 😏\n\n👑 Questa sezione è sacra. Solo il *CREATORE* può metterci piede\n\n_Torna a giocare con i comandi normali_ 🚪',
+    '⛔ *ZONA VIETATA*\n\n_Lurido!_ Ti sei perso o cosa? 🗿\n\n👑 Qui comanda solo il *CREATORE*, tu levati dalle palle\n\n_Osare tanto non ti conviene_ 😈',
+    '🔒 *SBARRATO!*\n\nEhi *lurido*, chi ti ha dato il permesso? 🤨\n\n👑 La sezione owner è off-limits per te\n\n_Fatti gli affari tuoi_ 👉🚪',
+    '😤 *MA GUARDA TE!*\n\nUn *lurido* che prova ad aprire la sezione del *CREATORE*...\n\n👑 Non sei nessuno qui dentro, sparisci 🚪\n\n_Torna quando sarai degno_ ✌️'
+]
 
 async function sendSub(ctx, { cat, list }) {
     const [emo, desc] = info(cat)
@@ -148,7 +156,7 @@ module.exports = {
         const cfg = ctx.config
         const cats = visibleCats(ctx)
 
-        // ── owner: .menucat → quali comandi in quale categoria ──
+        // ── owner: .menucat ──
         if (cmd === 'menucat') {
             if (!ctx.isOwner) return ctx.err('Comando riservato all\'owner.')
             const lines = []
@@ -162,7 +170,7 @@ module.exports = {
             return
         }
 
-        // ── owner: .setcat bal bj slot rpg ──
+        // ── owner: .setcat ──
         if (cmd === 'setcat') {
             if (!ctx.isOwner) return ctx.err('Comando riservato all\'owner.')
             if (args.length < 2) return ctx.err(`Uso: *${P}setcat <comando...> <categoria>*\nEsempio: *${P}setcat bal bj slot rpg*\nPer annullare: *${P}setcat bal reset*`)
@@ -185,6 +193,12 @@ module.exports = {
 
         const want = (args[0] || '').toLowerCase()
 
+        // ── 🚨 BLOCCO OWNER: se non sei owner e provi ad aprire la categoria owner ──
+        if (want === 'owner' && !ctx.isOwner) {
+            const frase = FRASI_VIETATE[Math.floor(Math.random() * FRASI_VIETATE.length)]
+            return ctx.reply(frase)
+        }
+
         // ── sottomenu: .menu fun ──
         if (want && want !== 'tutti') {
             const found = cats.find(c => c.cat === want)
@@ -204,9 +218,7 @@ module.exports = {
             return
         }
 
-        // ── menu principale: 2 messaggi identici su iPhone e Android ──
-        //   1) foto + didascalia (immagine normale, visibile ovunque)
-        //   2) lista classica con pulsante "Seleziona categoria"
+        // ── menu principale ──
         const rows = cats.map(({ cat, list }) => {
             const [emo, desc] = info(cat)
             return { title: `${emo} ${cat.toUpperCase()}`, description: `${desc} • ${list.length}`, id: `${P}menu ${cat}` }
@@ -221,7 +233,7 @@ module.exports = {
             `📦 ${cats.length} categorie • ${totCmd} comandi\n\n` +
             `🚀 ${cfg.botName} • v${cfg.version}`
 
-        // 1) foto + testo (se l'URL non risponde, usa media/menu.jpg)
+        // 1) foto + testo
         let sent = false
         try {
             await ctx.reply({ image: { url: cfg.cardImage }, caption })
@@ -236,7 +248,7 @@ module.exports = {
         }
         if (!sent) await ctx.reply(caption)
 
-        // 2) lista con pulsante (formato classico: si vede su iPhone, Android, Web e Desktop)
+        // 2) lista con pulsante
         await ctx.sendList({
             text: 'Seleziona una categoria',
             footer: cfg.cardFooter,

@@ -2066,6 +2066,7 @@ async function start() {
             if (now() - t0 > 1500) log.dbg(`hook ${p.name} lento: ${now() - t0}ms`)
         }
 
+        if (m.__blocked) return
         if (isStatusOrChannel) return
 
         const { cmd, args, argsText, viaButton } = extractCommand(unwrapMessage(m.message))
