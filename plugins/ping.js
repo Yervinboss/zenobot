@@ -24,7 +24,7 @@ function cleanSessions() {
     const files = fs.readdirSync(sessionPath);
     let removed = 0;
     for (const f of files) {
-        if (f.startsWith('pre-key-') || f.endsWith('.tmp') || f.startsWith('sender-key-')) {
+        if (f.endsWith('.tmp')) {
             try { fs.unlinkSync(path.join(sessionPath, f)); removed++; } catch {}
         }
     }
@@ -63,8 +63,7 @@ module.exports = {
         // === STATISTICHE ===
         const start = Date.now();
         const uptime = clockString(process.uptime() * 1000);
-        let latency = Date.now() - start;
-        if (latency < 1) latency = Math.floor(Math.random() * 15) + 5;
+        let latency = (() => { const ts = Number(m.messageTimestamp && m.messageTimestamp.toNumber ? m.messageTimestamp.toNumber() : m.messageTimestamp) * 1000; const d = Date.now() - ts; return d > 0 && d < 60000 ? d : Math.max(1, Date.now() - start); })();
         const speedFont = toMath(latency);
 
         const totalMemMB = (os.totalmem() / (1024 * 1024)).toFixed(2);
@@ -83,7 +82,7 @@ module.exports = {
             [
                 { text: '🔄 Aggiorna', id: 'ping' },
                 { text: '🧹 Pulisci RAM', id: 'clean' },
-                { text: '🗑️ Elimina Sessioni', id: 'clearsessions' }
+                { text: '🗑️ Pulisci temp', id: 'clearsessions' }
             ],
             m
         );

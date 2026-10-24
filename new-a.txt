@@ -1,0 +1,31 @@
+            const titleOf = (video) => `🎵 ${video.title.substring(0, 60)}${video.title.length > 60 ? '…' : ''}`
+            const infoOf = (video) => `📺 ${video.author?.name || 'Sconosciuto'}\n⏱️ ${video.timestamp || '—'}\n👁️ ${video.views?.toLocaleString('it-IT') || '—'}`
+            const intro = `🔎 ᴛʀᴏᴠᴀᴛɪ ${results.length} ʀɪꜱᴜʟᴛᴀᴛɪ per "*${text}*".\n\nScrolla e scegli la canzone adatta alla tua richiesta.`
+
+            let lastErr = null
+            // carosello del core: sceglie da solo il formato giusto per Android e iPhone
+            if (ctx && typeof ctx.sendCards === 'function') {
+                try {
+                    return await ctx.sendCards({
+                        text: intro,
+                        footer: 'ZENOBOT',
+                        title: 'ZENOBOT',
+                        cards: results.map((video, index) => ({
+                            title: titleOf(video),
+                            body: infoOf(video),
+                            image: getThumbnail(video),
+                            footer: 'ZENOBOT',
+                            buttons: [{ text: `🎧 Seleziona ${index + 1}`, id: `tp_select ${index + 1}` }]
+                        }))
+                    })
+                } catch (e) {
+                    lastErr = e
+                    console.error('[tp] carosello:', e && e.message)
+                }
+            }
+
+            // ultima spiaggia: lista di testo (all'owner mostro anche l'errore)
+            const lines = results.map((v, i) => `*${i + 1}.* ${v.title}\n     📺 ${v.author?.name || 'Sconosciuto'} • ⏱️ ${v.timestamp || '—'}`)
+            let out = `🔎 Risultati per "*${text}*":\n\n${lines.join('\n\n')}\n\nScegli con *${P}tp_select <numero>*`
+            if (ctx && ctx.isOwner && lastErr) out += `\n\n⚠️ Carosello non partito: ${String((lastErr && lastErr.message) || lastErr).slice(0, 160)}`
+            return reply(out)

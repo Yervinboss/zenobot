@@ -91,12 +91,13 @@ const DEFAULTS = {
     configRev: 4,
     nodeProfile: 'full',          // nodi "biz" iOS: full (biz+bot in privato) | biz | off
     universalTextFirst: true,     // su universal invia prima il testo normale (così su iPhone si vede sempre qualcosa)
+    carouselStyle: 'native',      // come costruire il carosello: native | flat | biz | bare | wrap (prova con .carotest)
     cardImage: 'https://i.postimg.cc/266mKgQj/lv-0-20260913184208.jpg',
     cardFooter: 'ZENO ULTIMATE',
     cardsPerPage: 10,
     stackMax: 8,
     botName: 'ZENO ULTIMATE',
-    version: '4.5.0'
+    version: '4.6.0'
 }
 let CONFIG = { ...DEFAULTS }
 try {
@@ -586,8 +587,8 @@ function cardsToText(spec) {
 //     Costruisce il messaggio "interactive" a basso livello e lo invia con i
 //     nodi <biz> che WhatsApp richiede per mostrarlo (senza, iPhone non vede nulla).
 // ───────────────────────────────────────────────────────────────────────────
-function bizNodes(kind, jid) {
-    const prof = CONFIG.nodeProfile || 'full'
+function bizNodes(kind, jid, profOverride) {
+    const prof = profOverride || CONFIG.nodeProfile || 'full'
     if (prof === 'off') return []
     if (kind === 'list') return [{ tag: 'biz', attrs: {}, content: [{ tag: 'list', attrs: { type: 'product_list', v: '2' } }] }]
     const nodes = [{
@@ -695,8 +696,66 @@ async function buildLegacyList(sock, jid, spec = {}, quoted) {
     }, { userJid: sock.user?.id, quoted })
 }
 
-async function relayInteractive(sock, jid, msg, kind) {
-    await sock.relayMessage(jid, msg.message, { messageId: msg.key.id, additionalNodes: bizNodes(kind, jid) })
+// ── CAROSELLO: più "stili" di costruzione, da provare con .carotest ─────────
+const CAROUSEL_STYLES = {
+    native: 'carosello della libreria (quello che va su Android)',
+    flat:   'costruito a mano + nodi biz e bot',
+    biz:    'costruito a mano + solo nodo biz',
+    bare:   'costruito a mano, nessun nodo extra',
+    wrap:   'costruito a mano dentro viewOnce + nodo biz'
+}
+const CAROUSEL_NODES = { flat: 'full', biz: 'biz', bare: 'off', wrap: 'biz' }
+
+async function buildCarouselContent(sock, spec = {}) {
+    const IM = baileys.proto.Message.InteractiveMessage
+    const cards = []
+    for (const c of spec.cards) {
+        cards.push(IM.fromObject({
+            header: await flowHeader(sock, c),
+            body: IM.Body.fromObject({ text: cardCaption(c) || ' ' }),
+            footer: IM.Footer.fromObject({ text: c.footer ?? CONFIG.cardFooter ?? '' }),
+            nativeFlowMessage: IM.NativeFlowMessage.fromObject({ buttons: (c.buttons || []).slice(0, 3).map(flowButton) })
+        }))
+    }
+    return IM.fromObject({
+        body: IM.Body.fromObject({ text: spec.text || ' ' }),
+        footer: IM.Footer.fromObject({ text: spec.footer ?? CONFIG.cardFooter ?? '' }),
+        header: IM.Header.fromObject({ title: '', subtitle: '', hasMediaAttachment: false }),
+        carouselMessage: IM.CarouselMessage.fromObject({ cards, messageVersion: 1 })
+    })
+}
+
+// spec: { text, footer, cards:[{title, body, image, buttons}] }  (max ~10 card per pagina)
+async function sendCarouselPage(sock, jid, spec = {}, style = 'native', o = {}) {
+    const sendOpts = o.quoted ? { quoted: o.quoted } : undefined
+    const cards = (spec.cards || []).filter(Boolean)
+    if (!cards.length) return sock.sendMessage(jid, { text: spec.text || '' }, sendOpts)
+    if (style === 'native' || !CAROUSEL_STYLES[style]) {
+        return sock.sendMessage(jid, {
+            text: spec.text || '✦', footer: spec.footer ?? CONFIG.cardFooter, cards: cards.map(makeCard)
+        }, sendOpts)
+    }
+    let msg
+    if (cards.length === 1) {
+        const c = cards[0]
+        msg = await buildInteractive(sock, jid, {
+            body: cardCaption(c), footer: c.footer,
+            image: c.image === undefined ? CONFIG.cardImage : c.image, video: c.video,
+            buttons: (c.buttons || []).slice(0, 3)
+        }, o.quoted)
+    } else {
+        const interactiveMessage = await buildCarouselContent(sock, { ...spec, cards })
+        const ctxInfo = { deviceListMetadata: {}, deviceListMetadataVersion: 2 }
+        const content = style === 'wrap'
+            ? { viewOnceMessage: { message: { messageContextInfo: ctxInfo, interactiveMessage } } }
+            : { messageContextInfo: ctxInfo, interactiveMessage }
+        msg = await baileys.generateWAMessageFromContent(jid, content, { userJid: sock.user?.id, quoted: o.quoted })
+    }
+    return relayInteractive(sock, jid, msg, 'interactive', CAROUSEL_NODES[style])
+}
+
+async function relayInteractive(sock, jid, msg, kind, prof) {
+    await sock.relayMessage(jid, msg.message, { messageId: msg.key.id, additionalNodes: bizNodes(kind, jid, prof) })
     try { if (msg.key?.id) msgStore.set(msg.key.id, msg.message) } catch {}
     return msg
 }
@@ -787,11 +846,11 @@ async function sendCards(sock, jid, spec = {}, o = {}) {
         const pages = chunk(all, Math.max(1, CONFIG.cardsPerPage))
         let last
         for (let i = 0; i < pages.length; i++) {
-            last = await sock.sendMessage(jid, {
+            last = await sendCarouselPage(sock, jid, {
                 text: i === 0 ? (spec.text || '✦') : `✦ ${i + 1}/${pages.length}`,
                 footer: spec.footer ?? CONFIG.cardFooter,
-                cards: pages[i].map(makeCard)
-            }, sendOpts)
+                cards: pages[i]
+            }, o.style || CONFIG.carouselStyle || 'native', o)
             if (i < pages.length - 1) await sleep(400)
         }
         return last
@@ -1141,7 +1200,8 @@ const cardsApi = {
     send: sendCards, sendButtons, sendList, sendTable, sendCode,
     sendAlbum, sendPoll, sendEvent, sendLocation, sendContact,
     sendVoice, sendSticker, sendGif, sendDocument, sendProduct,
-    universal: { sendAdCard, sendLegacyButtons, buildInteractive, buildLegacyList, relayInteractive, bizNodes, flowButton },
+    carouselStyles: CAROUSEL_STYLES,
+    universal: { sendCarouselPage, sendAdCard, sendLegacyButtons, buildInteractive, buildLegacyList, relayInteractive, bizNodes, flowButton },
     resolveMode: resolveCardMode, detectDevice, MODES
 }
 
@@ -1350,6 +1410,48 @@ const corePlugins = [
                     { title: '🌐 Libreria', body: 'Pagina della libreria usata dal bot.', buttons: [btn.url('Apri sito', 'https://www.npmjs.com/package/@itsliaaa/baileys'), btn.reply('Menu', 'menu')] }
                 ]
             }, { mode: MODES.includes(forced) ? forced : undefined })
+        }
+    },
+    {
+        commands: ['carotest'], name: 'carotest', category: 'sistema', author: 'ZENO',
+        description: 'Prova gli stili di carosello sul tuo telefono', usage: '[stile|all]',
+        async run(sock, m, args, cmd, ctx) {
+            const want = (args[0] || 'all').toLowerCase()
+            const names = want === 'all' ? Object.keys(CAROUSEL_STYLES) : [want]
+            if (names.some(n => !CAROUSEL_STYLES[n])) return ctx.err(`Stili: ${Object.keys(CAROUSEL_STYLES).join(', ')}`)
+            const demo = [1, 2, 3].map(n => ({ title: `🎵 Canzone ${n}`, body: 'Artista • 3:21', buttons: [btn.reply('▶ Riproduci', 'ping')] }))
+            await ctx.reply(ui.box('TEST CAROSELLO', [
+                `Dispositivo rilevato: *${ctx.device}*`,
+                `Ti mando ${names.length} varianti numerate.`,
+                'Dimmi quali scorrono di lato sul tuo telefono.'
+            ]))
+            for (let i = 0; i < names.length; i++) {
+                try {
+                    await sendCarouselPage(sock, ctx.chat, {
+                        text: `*Variante ${i + 1}/${names.length} — ${names[i]}*\n_${CAROUSEL_STYLES[names[i]]}_`, cards: demo
+                    }, names[i], { quoted: m })
+                } catch (e) { await ctx.reply(`Variante *${names[i]}* non inviabile: ${e.message}`) }
+                await sleep(1500)
+            }
+            await ctx.reply(`Trovata quella giusta? Usa *${PREFIX}carostyle <nome>*`)
+        }
+    },
+    {
+        commands: ['carostyle'], name: 'carostyle', category: 'sistema', author: 'ZENO', ownerOnly: true,
+        description: 'Scegli lo stile del carosello e attivalo su iPhone', usage: '[stile|ios on|ios off]',
+        async run(sock, m, args, cmd, ctx) {
+            const a0 = (args[0] || '').toLowerCase()
+            if (a0 === 'ios') {
+                CONFIG.iosMode = (args[1] || '').toLowerCase() === 'on' ? 'carousel' : 'compat'; saveConfig()
+                return ctx.ok(`Su iPhone/Web/Desktop ora uso: *${CONFIG.iosMode}*`)
+            }
+            if (CAROUSEL_STYLES[a0]) { CONFIG.carouselStyle = a0; saveConfig(); return ctx.ok(`Stile carosello: *${a0}*`) }
+            await ctx.reply(ui.box('STILE CAROSELLO', [
+                `Attuale: *${CONFIG.carouselStyle}*`, `iPhone usa: *${CONFIG.iosMode}*`,
+                { section: 'Stili' },
+                ...Object.entries(CAROUSEL_STYLES).map(([k, v]) => `*${k}* — ${v}`),
+                { raw: `Esempio: *${PREFIX}carostyle flat*\nPoi: *${PREFIX}carostyle ios on*` }
+            ]))
         }
     },
     {
@@ -1995,6 +2097,7 @@ async function start() {
         }
     }
     sock.ev.on('group-participants.update', (u) => fireHook('onGroupParticipants', u))
+  sock.ev.on('group-participants.update', (u) => require('./lib/perma').onJoin(sock, u).catch(() => {}))
     sock.ev.on('groups.update',             (l) => fireHook('onGroupsUpdate', l))
     sock.ev.on('call',                      (c) => fireHook('onCall', c))
     sock.ev.on('presence.update',           (p) => { try { bus.emit('presence', p) } catch {} })
@@ -2034,7 +2137,7 @@ async function start() {
 
         const ts = tsOf(m)
         if (CONFIG.ignoreOldMsgSec > 0 && ts && (now() / 1000 - ts) > CONFIG.ignoreOldMsgSec) {
-            log.dbg(`messaggio vecchio ignorato (${Math.round(now() / 1000 - ts)}s)`)
+            log.warn(`⏱️ messaggio vecchio ignorato (${Math.round(now() / 1000 - ts)}s): controlla l'ora del telefono`)
             return
         }
 
@@ -2042,9 +2145,9 @@ async function start() {
         const sender = getSenderNumber(m)
         const isStatusOrChannel = chatJid === 'status@broadcast' || chatJid.endsWith('@newsletter')
 
-        if (db.bans.get('users', []).includes(sender) && !isOwner(sender)) return
-        if (isGroupJid(chatJid) && db.bans.get('groups', []).includes(chatJid)) return
-        if (!isOwner(sender) && checkFlood(sender)) { stats.messagesBlocked++; saveStats(); return }
+        if (db.bans.get('users', []).includes(sender) && !isOwner(sender)) { log.warn(`🚫 utente bannato ignorato: ${sender}`); return }
+        if (isGroupJid(chatJid) && db.bans.get('groups', []).includes(chatJid)) { log.warn(`🚫 gruppo bannato ignorato: ${chatJid}`); return }
+        if (!isOwner(sender) && checkFlood(sender)) { stats.messagesBlocked++; saveStats(); log.warn(`🌊 messaggio scartato (flood) da ${sender}`); return }
 
         if (CONFIG.autoRead && !isStatusOrChannel)     try { await sock.readMessages([m.key]) } catch {}
         if (CONFIG.autoPresence && !isStatusOrChannel) try { await sock.sendPresenceUpdate('available', chatJid) } catch {}
@@ -2068,6 +2171,9 @@ async function start() {
 
         if (m.__blocked) return
         if (isStatusOrChannel) return
+
+        
+
 
         const { cmd, args, argsText, viaButton } = extractCommand(unwrapMessage(m.message))
         if (!cmd) return
@@ -2191,6 +2297,7 @@ async function start() {
     }
 
     sock.ev.on('messages.upsert', ({ messages, type }) => {
+    if (type === 'notify') { try { for (const _m of messages) require('./lib/top').count(_m) } catch {} }
         if (type && type !== 'notify') return
         for (const m of messages) {
             handleMessage(m).catch(e => log.err(`handler: ${e.message}`))

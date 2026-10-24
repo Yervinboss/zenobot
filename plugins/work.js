@@ -15,7 +15,7 @@ function getDB() {
 }
 function saveDB(data) { fs.writeFileSync(dbPath, JSON.stringify(data, null, 2)); }
 function getUser(db, id) {
-    if (!db[id]) db[id] = { level: 1, xp: 0, money: 0, lastWork: 0 };
+    if (!db[id]) db[id] = { level: 1, xp: 0, money: 1000, lastWork: 0 };
     return db[id];
 }
 const xpToNextLevel = (lvl) => Math.floor(50 * Math.pow(lvl, 1.35));

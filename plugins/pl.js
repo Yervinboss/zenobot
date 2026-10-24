@@ -239,9 +239,10 @@ async function askDelete(sock, jid, sender, m) {
 }
 
 const allCommands = ['pl', 'pl_add', 'pl_all', 'pl_stop', 'pl_merge', 'pl_fusion', 'pl_del', 'pl_clear', 'pl_askdel'];
-for (let i = 0; i < 30; i++) {
+for (let i = 0; i < 100; i++) {
     allCommands.push(`pl_select_${i}`);
     allCommands.push(`pl_del_${i}`);
+    allCommands.push(`pl_page_${i}`);
 }
 
 module.exports = {
@@ -402,6 +403,9 @@ module.exports = {
         }
 
         // === MENU PLAYLIST ===
+        let page = 0;
+        if (/^page_\d+$/.test(sub)) page = parseInt(sub.replace('page_', ''));
+        else if (sub === 'page') page = (parseInt(rest) || 1) - 1;
         let plDb = readDb(playlistDbPath);
         let userTracks = plDb[sender] || [];
         if (userTracks.length === 0)
@@ -452,7 +456,16 @@ module.exports = {
                 { title: '🎛️ Fondi playlist', rowId: 'pl_merge', description: 'Un unico file con tutte le tracce' },
                 { title: '⏹️ Stop', rowId: 'pl_stop', description: 'Ferma la riproduzione' }
             ];
-            const brani = rows.slice(0, 7).map(r => ({ title: r.title, rowId: r.id, description: r.description }));
+            const PER = 5;
+            const pages = Math.max(1, Math.ceil(total / PER));
+            if (page < 0) page = 0;
+            if (page > pages - 1) page = pages - 1;
+            const brani = userTracks.slice(page * PER, page * PER + PER).map((t, k) => {
+                const i = page * PER + k;
+                return { title: `${i + 1}. ${String(t.title || 'Sconosciuto').substring(0, 40)}`, rowId: `pl_select_${i}`, description: t.duration ? `⏱️ ${t.duration} • tocca per ascoltare` : 'Tocca per ascoltare' };
+            });
+            if (page > 0) brani.push({ title: '⬅️ Pagina precedente', rowId: `pl_page_${page - 1}`, description: `Vai a pagina ${page}/${pages}` });
+            if (page < pages - 1) brani.push({ title: '➡️ Pagina successiva', rowId: `pl_page_${page + 1}`, description: `Vai a pagina ${page + 2}/${pages}` });
             let card = null;
             try {
                 let thumb = null;
@@ -482,11 +495,11 @@ module.exports = {
                 card = { key: { participants: '0@s.whatsapp.net', fromMe: false, id: 'Halo' }, message: { locationMessage: loc }, participant: '0@s.whatsapp.net' };
             } catch {}
             return await sock.sendMessage(jid, {
-                text: `🎵 *PLAYLIST DI ${name.toUpperCase()}*\n📀 Brani salvati: *${total}*\n\nTocca il pulsante e scegli cosa fare.` + (total > 7 ? '\n_Per i brani dal numero 8 in poi usa_ `.pl play 8`' : ''),
+                text: `🎵 *PLAYLIST DI ${name.toUpperCase()}*\n📀 Brani salvati: *${total}*\n📄 Pagina ${page + 1}/${pages}\n\nTocca il pulsante e scegli cosa fare.`,
                 footer: 'Zeno Bot • Music Playlist',
                 title: '🎵 Playlist',
                 buttonText: '📂 Apri playlist',
-                sections: [{ title: 'Azioni', rows: azioni }, { title: 'I tuoi brani', rows: brani }]
+                sections: [{ title: 'Azioni', rows: azioni }, { title: `I tuoi brani (${page + 1}/${pages})`, rows: brani }]
             }, { quoted: card || m });
         } catch (e) {
             console.log('pl: lista fallita, provo la card:', e.message);

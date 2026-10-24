@@ -88,15 +88,16 @@ const DEFAULTS = {
     iosMode: 'compat',            // card su iPhone/Web/Desktop: compat (testato) | universal | album | stack | text
     compatListAd: true,           // iPhone: foto + lista nello stesso messaggio (se la foto non si vede, metti false)
     compatAdCardsMax: 3,          // in modalità compat: fino a N card mostrate come anteprime con immagine
-    configRev: 2,
+    configRev: 4,
     nodeProfile: 'full',          // nodi "biz" iOS: full (biz+bot in privato) | biz | off
     universalTextFirst: true,     // su universal invia prima il testo normale (così su iPhone si vede sempre qualcosa)
+    carouselStyle: 'native',      // come costruire il carosello: native | flat | biz | bare | wrap (prova con .carotest)
     cardImage: 'https://i.postimg.cc/266mKgQj/lv-0-20260913184208.jpg',
     cardFooter: 'ZENO ULTIMATE',
     cardsPerPage: 10,
     stackMax: 8,
     botName: 'ZENO ULTIMATE',
-    version: '4.4.0'
+    version: '4.6.0'
 }
 let CONFIG = { ...DEFAULTS }
 try {
@@ -104,7 +105,7 @@ try {
         const saved = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'))
         CONFIG = { ...DEFAULTS, ...saved }
         CONFIG.version = DEFAULTS.version
-        if ((saved.configRev || 0) < 2) { CONFIG.iosMode = 'compat'; CONFIG.configRev = 2; saved.configRev = 2; fs.writeFileSync(CONFIG_FILE, JSON.stringify(CONFIG, null, 4)) }
+        if ((saved.configRev || 0) < 4) { CONFIG.iosMode = 'compat'; CONFIG.cardMode = 'auto'; CONFIG.configRev = 4; saved.configRev = 4; fs.writeFileSync(CONFIG_FILE, JSON.stringify(CONFIG, null, 4)) }
         if (Object.keys(DEFAULTS).some(k => !(k in saved) && k !== 'version')) {
             fs.writeFileSync(CONFIG_FILE, JSON.stringify(CONFIG, null, 4))
         }
@@ -369,7 +370,23 @@ const THEMES = {
         div: '──────────',
         bottom: '━━━━━━━━━━',
         foot: (t) => `_${t}_`
-    }
+    },
+    glass: {
+        top: (t) => `╭─「 ✧ *${t}* ✧ 」─╮`,
+        sub: (t) => `├─ ❖ ${t}`,
+        side: '│', bullet: '•',
+        div: '├───────────────────╮',
+        bottom: '╰───────────────────╯',
+        foot: (t) => `   ◈ _${t}_ ◈`
+    },
+    royal: {
+        top: (t) => `╔═════〔 👑 *${t}* 👑 〕═════╗`,
+        sub: (t) => `╠═ ✦ ${t}`,
+        side: '║', bullet: '◈',
+        div: '╠═══════════════════════╣',
+        bottom: '╚═══════════════════════╝',
+        foot: (t) => `   👑 _${t}_ 👑`
+    },
 }
 
 const STATUS_STYLE = {
@@ -570,8 +587,8 @@ function cardsToText(spec) {
 //     Costruisce il messaggio "interactive" a basso livello e lo invia con i
 //     nodi <biz> che WhatsApp richiede per mostrarlo (senza, iPhone non vede nulla).
 // ───────────────────────────────────────────────────────────────────────────
-function bizNodes(kind, jid) {
-    const prof = CONFIG.nodeProfile || 'full'
+function bizNodes(kind, jid, profOverride) {
+    const prof = profOverride || CONFIG.nodeProfile || 'full'
     if (prof === 'off') return []
     if (kind === 'list') return [{ tag: 'biz', attrs: {}, content: [{ tag: 'list', attrs: { type: 'product_list', v: '2' } }] }]
     const nodes = [{
@@ -679,8 +696,66 @@ async function buildLegacyList(sock, jid, spec = {}, quoted) {
     }, { userJid: sock.user?.id, quoted })
 }
 
-async function relayInteractive(sock, jid, msg, kind) {
-    await sock.relayMessage(jid, msg.message, { messageId: msg.key.id, additionalNodes: bizNodes(kind, jid) })
+// ── CAROSELLO: più "stili" di costruzione, da provare con .carotest ─────────
+const CAROUSEL_STYLES = {
+    native: 'carosello della libreria (quello che va su Android)',
+    flat:   'costruito a mano + nodi biz e bot',
+    biz:    'costruito a mano + solo nodo biz',
+    bare:   'costruito a mano, nessun nodo extra',
+    wrap:   'costruito a mano dentro viewOnce + nodo biz'
+}
+const CAROUSEL_NODES = { flat: 'full', biz: 'biz', bare: 'off', wrap: 'biz' }
+
+async function buildCarouselContent(sock, spec = {}) {
+    const IM = baileys.proto.Message.InteractiveMessage
+    const cards = []
+    for (const c of spec.cards) {
+        cards.push(IM.fromObject({
+            header: await flowHeader(sock, c),
+            body: IM.Body.fromObject({ text: cardCaption(c) || ' ' }),
+            footer: IM.Footer.fromObject({ text: c.footer ?? CONFIG.cardFooter ?? '' }),
+            nativeFlowMessage: IM.NativeFlowMessage.fromObject({ buttons: (c.buttons || []).slice(0, 3).map(flowButton) })
+        }))
+    }
+    return IM.fromObject({
+        body: IM.Body.fromObject({ text: spec.text || ' ' }),
+        footer: IM.Footer.fromObject({ text: spec.footer ?? CONFIG.cardFooter ?? '' }),
+        header: IM.Header.fromObject({ title: '', subtitle: '', hasMediaAttachment: false }),
+        carouselMessage: IM.CarouselMessage.fromObject({ cards, messageVersion: 1 })
+    })
+}
+
+// spec: { text, footer, cards:[{title, body, image, buttons}] }  (max ~10 card per pagina)
+async function sendCarouselPage(sock, jid, spec = {}, style = 'native', o = {}) {
+    const sendOpts = o.quoted ? { quoted: o.quoted } : undefined
+    const cards = (spec.cards || []).filter(Boolean)
+    if (!cards.length) return sock.sendMessage(jid, { text: spec.text || '' }, sendOpts)
+    if (style === 'native' || !CAROUSEL_STYLES[style]) {
+        return sock.sendMessage(jid, {
+            text: spec.text || '✦', footer: spec.footer ?? CONFIG.cardFooter, cards: cards.map(makeCard)
+        }, sendOpts)
+    }
+    let msg
+    if (cards.length === 1) {
+        const c = cards[0]
+        msg = await buildInteractive(sock, jid, {
+            body: cardCaption(c), footer: c.footer,
+            image: c.image === undefined ? CONFIG.cardImage : c.image, video: c.video,
+            buttons: (c.buttons || []).slice(0, 3)
+        }, o.quoted)
+    } else {
+        const interactiveMessage = await buildCarouselContent(sock, { ...spec, cards })
+        const ctxInfo = { deviceListMetadata: {}, deviceListMetadataVersion: 2 }
+        const content = style === 'wrap'
+            ? { viewOnceMessage: { message: { messageContextInfo: ctxInfo, interactiveMessage } } }
+            : { messageContextInfo: ctxInfo, interactiveMessage }
+        msg = await baileys.generateWAMessageFromContent(jid, content, { userJid: sock.user?.id, quoted: o.quoted })
+    }
+    return relayInteractive(sock, jid, msg, 'interactive', CAROUSEL_NODES[style])
+}
+
+async function relayInteractive(sock, jid, msg, kind, prof) {
+    await sock.relayMessage(jid, msg.message, { messageId: msg.key.id, additionalNodes: bizNodes(kind, jid, prof) })
     try { if (msg.key?.id) msgStore.set(msg.key.id, msg.message) } catch {}
     return msg
 }
@@ -771,11 +846,11 @@ async function sendCards(sock, jid, spec = {}, o = {}) {
         const pages = chunk(all, Math.max(1, CONFIG.cardsPerPage))
         let last
         for (let i = 0; i < pages.length; i++) {
-            last = await sock.sendMessage(jid, {
+            last = await sendCarouselPage(sock, jid, {
                 text: i === 0 ? (spec.text || '✦') : `✦ ${i + 1}/${pages.length}`,
                 footer: spec.footer ?? CONFIG.cardFooter,
-                cards: pages[i].map(makeCard)
-            }, sendOpts)
+                cards: pages[i]
+            }, o.style || CONFIG.carouselStyle || 'native', o)
             if (i < pages.length - 1) await sleep(400)
         }
         return last
@@ -1125,7 +1200,8 @@ const cardsApi = {
     send: sendCards, sendButtons, sendList, sendTable, sendCode,
     sendAlbum, sendPoll, sendEvent, sendLocation, sendContact,
     sendVoice, sendSticker, sendGif, sendDocument, sendProduct,
-    universal: { sendAdCard, sendLegacyButtons, buildInteractive, buildLegacyList, relayInteractive, bizNodes, flowButton },
+    carouselStyles: CAROUSEL_STYLES,
+    universal: { sendCarouselPage, sendAdCard, sendLegacyButtons, buildInteractive, buildLegacyList, relayInteractive, bizNodes, flowButton },
     resolveMode: resolveCardMode, detectDevice, MODES
 }
 
@@ -1148,18 +1224,60 @@ const corePlugins = [
                 const lines = list.map(p => `*${PREFIX}${primaryCmd(p)}*${p.usage ? ' ' + p.usage : ''}${p.description ? ' — ' + p.description : ''}`)
                 return ctx.reply(ui.box(`${catEmoji(want)} ${want.toUpperCase()}`, lines.length ? lines : ['Nessun comando']))
             }
-            const cards = []
+            const cats = []
             for (const [cat, list] of categoryIndex) {
                 const v = visible(list)
-                if (!v.length) continue
-                const names = v.slice(0, 6).map(p => PREFIX + primaryCmd(p)).join('  ')
-                cards.push({
-                    title: `${catEmoji(cat)} ${cat.toUpperCase()}`,
-                    body: `${v.length} comandi\n${names}${v.length > 6 ? ' …' : ''}`,
-                    buttons: [btn.reply('Apri', `menu ${cat}`)]
-                })
+                if (v.length) cats.push({ cat, n: v.length })
             }
-            await ctx.sendCards({ text: `✦ *${CONFIG.botName}*\nScegli una categoria`, cards })
+            if (!cats.length) return ctx.reply('Nessun comando disponibile.')
+            // Menu per TUTTI, senza riconoscere il telefono: si manda tutto,
+            // ogni telefono mostra solo ciò che supporta (gli altri messaggi restano invisibili).
+            const rows = cats.map(({ cat, n }) => ({
+                title: flat(`${catEmoji(cat)} ${cat.toUpperCase()}`, 24),
+                description: `${n} comandi`,
+                id: `menu ${cat}`
+            }))
+            // 1) foto del bot + elenco testuale: lo vedono tutti, anche senza bottoni
+            const totalCmds = cats.reduce((a, c) => a + c.n, 0)
+            const caption = [
+                `╭─「 ✦ *${CONFIG.botName}* ✦ 」─╮`,
+                `│ ⚡ *MENU PRINCIPALE*`,
+                `│ 📦 ${cats.length} categorie • ${totalCmds} comandi`,
+                `│ ⏳ Uptime: *${fmtUptime()}*`,
+                `╰───────────────────────╯`,
+                '',
+                ...cats.map(({ cat, n }) => `${catEmoji(cat)} *${cat.toUpperCase()}* — ${n} cmd\n   └ ${PREFIX}menu ${cat}`),
+                '',
+                `◈ _${CONFIG.cardFooter || CONFIG.botName}_`
+            ].join('\n')
+            await sock.sendMessage(ctx.chat, { image: toMedia(CONFIG.cardImage), caption }, { quoted: m })
+            await sleep(400)
+            // 2) pulsante "Seleziona categoria" nativo (Android)
+            try {
+                const U = cardsApi.universal
+                const msg = await U.buildInteractive(sock, ctx.chat, {
+                    body: 'Scegli una categoria',
+                    footer: CONFIG.cardFooter,
+                    image: null,
+                    buttons: [{ text: 'Seleziona categoria', sections: [{ title: 'Categorie', rows }] }]
+                }, m)
+                await U.relayInteractive(sock, ctx.chat, msg, 'interactive')
+            } catch (e) { log.dbg(`menu nativo fallito (${e.message})`) }
+            await sleep(400)
+            // 3) lista classica "Seleziona categoria" (iPhone)
+            const pages = chunk(rows, 10)
+            for (let i = 0; i < pages.length; i++) {
+                try {
+                    await ctx.sendList({
+                        title: '',
+                        text: i === 0 ? 'Scegli una categoria' : 'Altre categorie',
+                        buttonText: 'Seleziona categoria',
+                        footer: CONFIG.cardFooter,
+                        sections: [{ title: 'Categorie', rows: pages[i] }]
+                    }, { mode: 'compat' })
+                } catch (e) { log.dbg(`menu lista fallita (${e.message})`) }
+                if (i < pages.length - 1) await sleep(400)
+            }
         }
     },
     {
@@ -1232,7 +1350,7 @@ const corePlugins = [
         usage: '[modalità]',
         async run(sock, m, args, cmd, ctx) {
             const want = MODE_ALIAS[(args[0] || '').toLowerCase()] || (args[0] || '').toLowerCase()
-            if (MODES.includes(want) && want !== 'auto') {
+            if (MODES.includes(want)) {
                 db.users.set(`${ctx.sender}.cardMode`, want)
                 return ctx.ok(`Modalità card impostata su *${want}*.\nProva con *${PREFIX}cardtest*`)
             }
@@ -1295,6 +1413,48 @@ const corePlugins = [
         }
     },
     {
+        commands: ['carotest'], name: 'carotest', category: 'sistema', author: 'ZENO',
+        description: 'Prova gli stili di carosello sul tuo telefono', usage: '[stile|all]',
+        async run(sock, m, args, cmd, ctx) {
+            const want = (args[0] || 'all').toLowerCase()
+            const names = want === 'all' ? Object.keys(CAROUSEL_STYLES) : [want]
+            if (names.some(n => !CAROUSEL_STYLES[n])) return ctx.err(`Stili: ${Object.keys(CAROUSEL_STYLES).join(', ')}`)
+            const demo = [1, 2, 3].map(n => ({ title: `🎵 Canzone ${n}`, body: 'Artista • 3:21', buttons: [btn.reply('▶ Riproduci', 'ping')] }))
+            await ctx.reply(ui.box('TEST CAROSELLO', [
+                `Dispositivo rilevato: *${ctx.device}*`,
+                `Ti mando ${names.length} varianti numerate.`,
+                'Dimmi quali scorrono di lato sul tuo telefono.'
+            ]))
+            for (let i = 0; i < names.length; i++) {
+                try {
+                    await sendCarouselPage(sock, ctx.chat, {
+                        text: `*Variante ${i + 1}/${names.length} — ${names[i]}*\n_${CAROUSEL_STYLES[names[i]]}_`, cards: demo
+                    }, names[i], { quoted: m })
+                } catch (e) { await ctx.reply(`Variante *${names[i]}* non inviabile: ${e.message}`) }
+                await sleep(1500)
+            }
+            await ctx.reply(`Trovata quella giusta? Usa *${PREFIX}carostyle <nome>*`)
+        }
+    },
+    {
+        commands: ['carostyle'], name: 'carostyle', category: 'sistema', author: 'ZENO', ownerOnly: true,
+        description: 'Scegli lo stile del carosello e attivalo su iPhone', usage: '[stile|ios on|ios off]',
+        async run(sock, m, args, cmd, ctx) {
+            const a0 = (args[0] || '').toLowerCase()
+            if (a0 === 'ios') {
+                CONFIG.iosMode = (args[1] || '').toLowerCase() === 'on' ? 'carousel' : 'compat'; saveConfig()
+                return ctx.ok(`Su iPhone/Web/Desktop ora uso: *${CONFIG.iosMode}*`)
+            }
+            if (CAROUSEL_STYLES[a0]) { CONFIG.carouselStyle = a0; saveConfig(); return ctx.ok(`Stile carosello: *${a0}*`) }
+            await ctx.reply(ui.box('STILE CAROSELLO', [
+                `Attuale: *${CONFIG.carouselStyle}*`, `iPhone usa: *${CONFIG.iosMode}*`,
+                { section: 'Stili' },
+                ...Object.entries(CAROUSEL_STYLES).map(([k, v]) => `*${k}* — ${v}`),
+                { raw: `Esempio: *${PREFIX}carostyle flat*\nPoi: *${PREFIX}carostyle ios on*` }
+            ]))
+        }
+    },
+    {
         commands: ['cardnodes'], name: 'cardnodes', category: 'sistema', author: 'ZENO', ownerOnly: true,
         description: 'Profilo dei nodi iOS per le card (full/biz/off)', usage: '[full|biz|off]',
         async run(sock, m, args, cmd, ctx) {
@@ -1323,6 +1483,33 @@ const corePlugins = [
                 { section: 'Sezione' }, 'riga di esempio', 'un\'altra riga',
                 { raw: `Disponibili: ${Object.keys(THEMES).join(', ')}` }
             ]))
+        }
+    },
+    {
+        commands: ['panel', 'pannello'], name: 'panel', category: 'sistema', author: 'ZENO',
+        ownerOnly: true, description: 'Pannello owner: stato, plugin ed errori', usage: '',
+        async run(sock, m, args, cmd, ctx) {
+            const mem = process.memoryUsage()
+            const errs = plugins.filter(p => p.errors > 0).sort((a, b) => b.errors - a.errors).slice(0, 8)
+            const off = plugins.filter(p => !isPluginEnabled(p))
+            const users = Object.keys(db.users.all()).length
+            const groups = Object.keys(db.groups.all()).length
+            await ctx.reply(ui.box('👑 PANNELLO OWNER', [
+                { section: 'Sistema' },
+                `${CONFIG.botName} *v${CONFIG.version}*`,
+                `⏳ Uptime: *${fmtUptime()}*`,
+                `🧠 RAM: *${fmtBytes(mem.rss)}* / ${fmtBytes(os.totalmem())}`,
+                `🟢 Node: *${process.version}*`,
+                { section: 'Attività' },
+                `👤 Utenti: *${users}* • 👥 Gruppi: *${groups}*`,
+                `📨 Messaggi: *${stats.messagesSeen}*`,
+                `⚡ Comandi: *${stats.commandsRun}* • ❌ Errori: *${stats.commandsFailed}*`,
+                `🔌 Riconnessioni: *${stats.reconnects}*`,
+                { section: 'Plugin' },
+                `📦 Caricati: *${plugins.length}* • 🚫 Disattivati: *${off.length}*`,
+                errs.length ? { section: 'Errori recenti' } : '✅ Nessun errore nei plugin',
+                ...errs.map(p => `• *${p.name}*: ${p.errors} errori`)
+            ], `Usa ${PREFIX}plugins on/off <nome>`))
         }
     },
     {
@@ -1490,6 +1677,21 @@ const checkCooldown = (user, cmd, ms) => {
 scheduler.add('cooldown-cleanup', 5 * 60_000, () => {
     const t = now()
     for (const [k, v] of cooldowns) if (t - v > 10 * 60_000) cooldowns.delete(k)
+})
+
+const commandLimits = new Map()
+const checkRateLimit = (user, cmd, max = 5, windowMs = 10_000) => {
+    const key = `${user}:${cmd}`
+    const t = now()
+    let e = commandLimits.get(key)
+    if (!e || t - e.first > windowMs) { e = { count: 0, first: t }; commandLimits.set(key, e) }
+    e.count++
+    if (e.count > max) return Math.ceil((windowMs - (t - e.first)) / 1000)
+    return 0
+}
+scheduler.add('rate-limit-cleanup', 60_000, () => {
+    const t = now()
+    for (const [k, v] of commandLimits) if (t - v.first > 60_000) commandLimits.delete(k)
 })
 
 const floodMap = new Map()
@@ -1765,16 +1967,32 @@ async function start() {
 
     const { fixContent } = safeRequire('./lib/btnfix', { fixContent: (c) => c })
     const _send = sock.sendMessage.bind(sock)
+    let sendChain = Promise.resolve()
+    const SEND_GAP_MS = 220
+    const queueSend = (fn) => {
+        const run = sendChain.then(fn)
+        sendChain = run.then(() => sleep(SEND_GAP_MS)).catch(() => sleep(SEND_GAP_MS))
+        return run
+    }
     sock.sendMessage = async (jid, content, opts) => {
         const c = isNativeStyle(content) ? content : fixContent(content)
-        let res
-        try { res = await _send(jid, c, opts) }
-        catch (e) {
-            if (!/timed? ?out/i.test(e?.message || '')) throw e
-            log.dbg(`sendMessage timeout → riprovo (${jid})`)
-            await sleep(1000)
-            res = await _send(jid, c, opts)
-        }
+        return queueSend(async () => {
+            let res
+            let lastErr
+            for (let attempt = 1; attempt <= 3; attempt++) {
+                try { res = await _send(jid, c, opts); break }
+                catch (e) {
+                    lastErr = e
+                    const transient = /timed? ?out|ECONNRESET|ETIMEDOUT|EPIPE|network|Connection Closed|stream errored/i.test(e?.message || '')
+                    if (!transient || attempt === 3) throw e
+                    log.dbg(`sendMessage errore temporaneo → riprovo ${attempt}/3 (${jid})`)
+                    await sleep(800 * attempt)
+                }
+            }
+            if (lastErr && !res) throw lastErr
+            try { if (res?.key?.id && res.message) msgStore.set(res.key.id, res.message) } catch {}
+            return res
+        })
         try { if (res?.key?.id && res.message) msgStore.set(res.key.id, res.message) } catch {}
         return res
     }
@@ -1918,7 +2136,7 @@ async function start() {
 
         const ts = tsOf(m)
         if (CONFIG.ignoreOldMsgSec > 0 && ts && (now() / 1000 - ts) > CONFIG.ignoreOldMsgSec) {
-            log.dbg(`messaggio vecchio ignorato (${Math.round(now() / 1000 - ts)}s)`)
+            log.warn(`⏱️ messaggio vecchio ignorato (${Math.round(now() / 1000 - ts)}s): controlla l'ora del telefono`)
             return
         }
 
@@ -1926,9 +2144,9 @@ async function start() {
         const sender = getSenderNumber(m)
         const isStatusOrChannel = chatJid === 'status@broadcast' || chatJid.endsWith('@newsletter')
 
-        if (db.bans.get('users', []).includes(sender) && !isOwner(sender)) return
-        if (isGroupJid(chatJid) && db.bans.get('groups', []).includes(chatJid)) return
-        if (!isOwner(sender) && checkFlood(sender)) { stats.messagesBlocked++; saveStats(); return }
+        if (db.bans.get('users', []).includes(sender) && !isOwner(sender)) { log.warn(`🚫 utente bannato ignorato: ${sender}`); return }
+        if (isGroupJid(chatJid) && db.bans.get('groups', []).includes(chatJid)) { log.warn(`🚫 gruppo bannato ignorato: ${chatJid}`); return }
+        if (!isOwner(sender) && checkFlood(sender)) { stats.messagesBlocked++; saveStats(); log.warn(`🌊 messaggio scartato (flood) da ${sender}`); return }
 
         if (CONFIG.autoRead && !isStatusOrChannel)     try { await sock.readMessages([m.key]) } catch {}
         if (CONFIG.autoPresence && !isStatusOrChannel) try { await sock.sendPresenceUpdate('available', chatJid) } catch {}
@@ -1950,7 +2168,11 @@ async function start() {
             if (now() - t0 > 1500) log.dbg(`hook ${p.name} lento: ${now() - t0}ms`)
         }
 
+        if (m.__blocked) return
         if (isStatusOrChannel) return
+
+        
+
 
         const { cmd, args, argsText, viaButton } = extractCommand(unwrapMessage(m.message))
         if (!cmd) return
@@ -2010,6 +2232,15 @@ async function start() {
                 log.warn(`SoloAdmin: ignorato .${cmd}`); return
             }
         } catch {}
+
+        if (!isOwner(sender)) {
+            const rl = checkRateLimit(sender, cmd, 5, 10_000)
+            if (rl > 0) {
+                log.warn(`⛔ rate limit su .${cmd} da @${sender} (${rl}s)`)
+                if (CONFIG.replyCooldown) sock.sendMessage(chatJid, { react: { text: '⛔', key: m.key } }).catch(() => {})
+                return
+            }
+        }
 
         const cd = checkCooldown(sender, cmd, p.cooldown ?? CONFIG.cooldownMs)
         if (cd > 0) {

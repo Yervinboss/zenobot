@@ -1,0 +1,30 @@
+            try {
+                if (ctx && typeof ctx.sendButtons === 'function') {
+                    await ctx.sendButtons({
+                        title: 'ZENOBOT',
+                        text: `${actionText}\n\n🎧 Scegli un'azione per questo brano:`,
+                        image: getThumbnail(video),
+                        footer: 'ZENOBOT',
+                        buttons: [
+                            { text: '🎧 Scegli audio', id: 'tp_audio' },
+                            { text: '🎥 Scegli video', id: 'tp_video' },
+                            { text: '🎵 Metti in coda', id: 'tp_queue' }
+                        ]
+                    })
+                } else {
+                    await sock.sendMessage(chatId, {
+                        image: { url: getThumbnail(video) },
+                        caption: `${actionText}\n\n🎧 Scegli un'azione per questo brano:`,
+                        footer: 'ZENOBOT',
+                        buttons: [
+                            { buttonId: `${P}tp_audio`, buttonText: { displayText: '🎧 Scegli audio' }, type: 1 },
+                            { buttonId: `${P}tp_video`, buttonText: { displayText: '🎥 Scegli video' }, type: 1 },
+                            { buttonId: `${P}tp_queue`, buttonText: { displayText: '🎵 Metti in coda' }, type: 1 }
+                        ],
+                        headerType: 1
+                    }, { quoted: m })
+                }
+            } catch (e) {
+                console.error('[tp] pulsanti:', e && e.message)
+                await reply(`${actionText}\n\nScrivi: *${P}tp_audio* • *${P}tp_video* • *${P}tp_queue*`)
+            }

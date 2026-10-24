@@ -61,7 +61,7 @@ module.exports = {
 
             if (ps > 21) {
                 const db = getDB();
-                if (!db[userId]) db[userId] = { level: 1, xp: 0, money: 2000, lastWork: 0 };
+                if (!db[userId]) db[userId] = { level: 1, xp: 0, money: 1000, lastWork: 0 };
                 db[userId].money -= game.bet;
                 saveDB(db);
                 delete global.blackjack[userId];
@@ -81,7 +81,7 @@ module.exports = {
             while (ds < 17) { game.dealerHand.push(draw()); ds = calc(game.dealerHand); }
 
             const db = getDB();
-            if (!db[userId]) db[userId] = { level: 1, xp: 0, money: 2000, lastWork: 0 };
+            if (!db[userId]) db[userId] = { level: 1, xp: 0, money: 1000, lastWork: 0 };
 
             let outcome;
             if (ds > 21 || ps > ds) { db[userId].money += game.bet; outcome = `🎉 *HAI VINTO ${formatMoney(game.bet * 2)}!*`; }
@@ -97,7 +97,7 @@ module.exports = {
 
         // === Nuova partita ===
         const db = getDB();
-        if (!db[userId]) db[userId] = { level: 1, xp: 0, money: 2000, lastWork: 0 };
+        if (!db[userId]) db[userId] = { level: 1, xp: 0, money: 1000, lastWork: 0 };
 
         const bet = parseInt(args[0]);
         if (isNaN(bet) || bet <= 0) return sock.sendMessage(jid, { text: '❌ Cifra non valida! Esempio: `.bj 100`' }, { quoted: m });

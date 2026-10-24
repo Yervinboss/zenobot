@@ -15,7 +15,7 @@ function getDB() {
 }
 function saveDB(data) { fs.writeFileSync(dbPath, JSON.stringify(data, null, 2)); }
 function getUser(db, id) {
-    if (!db[id]) db[id] = { level: 1, xp: 0, money: 5000, lastWork: 0 };
+    if (!db[id]) db[id] = { level: 1, xp: 0, money: 1000, lastWork: 0 };
     return db[id];
 }
 const formatMoney = (n) => '€' + n.toLocaleString('it-IT');

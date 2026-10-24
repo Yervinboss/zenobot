@@ -7,16 +7,8 @@
 //  • .menu tutti           → tutti i comandi
 //  • .menucat   (owner)    → vedi quali comandi stanno in quale categoria
 //  • .setcat <cmd...> <categoria>  (owner) → sposta uno o più comandi
-//      es.  .setcat bal bj slot rpg       .setcat figa infame fun
-//      per annullare:  .setcat bal reset
-//  • .setmenu   (owner)    → cambia la media del menu
-//      - invia una foto/video/gif con didascalia  .setmenu
-//      - oppure rispondi a una foto/video/gif con .setmenu
-//      - oppure  .setmenu <link diretto a immagine/video/gif>
-//      - per tornare a quella di default:  .setmenu reset
-//      I video e le gif vengono mostrati come GIF animata.
-//  Le categorie dei plugin con `category` esplicita restano com'è;
-//  quelli senza categoria vengono assegnati in automatico dal nome.
+//  • .setmenu   (owner)    → cambia la media del menu (foto/video/gif)
+//      .setmenu reset → torna a quella di default
 // ═══════════════════════════════════════════════════════════════
 
 const fs = require('fs')
@@ -45,6 +37,8 @@ const CAT_INFO = {
     assistenza:  ['🆘', 'Supporto e contatti'],
     general:     ['✨', 'Altri comandi']
 }
+// categorie che vengono assorbite da un'altra (es. creatore → owner)
+const CAT_ALIAS = { creatore: 'owner', creator: 'owner', creatori: 'owner' }
 const ORDER = ['staff', 'moderazione', 'funzioni', 'admin', 'gruppo', 'giochi', 'rpg', 'fun', 'sticker', 'musica', 'download', 'tools', 'sistema', 'owner', 'assistenza', 'general']
 
 // Assegnazione automatica (solo per i plugin senza categoria). Correggibile con .setcat
@@ -63,7 +57,6 @@ const RULES = [
 ]
 
 // ── Assegnazione esplicita: comando → categoria (ha la precedenza sulle regole automatiche) ──
-//    Si può comunque spostare un comando a mano con .setcat <comando> <categoria>
 const MAP = {}
 const put = (cat, list) => list.split(/\s+/).filter(Boolean).forEach(c => { MAP[c] = cat })
 put('moderazione', 'kick warn unwarn richiamo grazia mute unmute aperto chiuso apri chiudi p promote d demote del delete tag link invito qr qrlink admin staff paneladmin antilink antispam antivoip antibot req richieste richiesta welcome setwelcome setbenvenuto testwelcome soloadmin solo setgpp gpp fotogruppo')
@@ -100,7 +93,7 @@ function effectiveCat(p, cat) {
     if (ov) return ov
     const ns = names(p)
     for (const n of ns) if (MAP[n]) return MAP[n]
-    if (cat !== 'general') return cat
+    if (cat !== 'general') return CAT_ALIAS[String(cat).toLowerCase()] || cat
     for (const [c, re] of RULES) if (ns.some(n => re.test(n))) return c
     return 'general'
 }
@@ -123,6 +116,7 @@ function visibleCats(ctx) {
 }
 
 const info = (cat) => CAT_INFO[cat] || ['📦', 'Comandi']
+const niceName = (c) => c.length <= 3 ? c.toUpperCase() : c.charAt(0).toUpperCase() + c.slice(1)
 
 // ═══════════════════════════════════════════════════════════════
 //  MEDIA DEL MENU (foto / video / gif) — salvata in media/
@@ -148,7 +142,7 @@ function loadMenuMedia() {
     return null
 }
 
-// Invia la "card" del menu: media custom → immagine di default (URL) → media/menu.jpg → null
+// Invia la "card" del menu: media custom → immagine di default (URL) → null
 async function sendCard(ctx, caption) {
     const custom = loadMenuMedia()
     if (custom) {
@@ -279,9 +273,9 @@ async function handleSetMenu(m, args, ctx) {
 // ═══════════════════════════════════════════════════════════════
 //  GRAFICA
 // ═══════════════════════════════════════════════════════════════
-const TOP = '╭━━━━━━━━━━━━━━━━━━━━━━╮'
-const BOT = '╰━━━━━━━━━━━━━━━━━━━━━━╯'
-const SEP = '┣━━━━━━━━━━━━━━━━━━━━━━'
+const TOP = '╭━━━━━━━━━━━━━━━╮'
+const BOT = '╰━━━━━━━━━━━━━━━╯'
+const SEP = '┣━━━━━━━━━━━━━━━'
 
 async function sendSub(ctx, { cat, list }) {
     const [emo, desc] = info(cat)
@@ -400,17 +394,16 @@ module.exports = {
         const totCmd = cats.reduce((n, c) => n + c.list.length, 0)
         const name = ctx.pushName ? ` *${ctx.pushName}*` : ''
 
-        const catLines = cats.map(({ cat, list }) => `┃ ${info(cat)[0]} ${cat.charAt(0).toUpperCase() + cat.slice(1)} ┈ ${list.length}`)
+        const catLines = cats.map(({ cat, list }) => `┃ ${info(cat)[0]} ${niceName(cat)} › ${list.length}`)
         let caption = [
             TOP,
             `┃ ⚡ *${cfg.botName}*`,
             `┃ 👋 Ciao${name}!`,
-            `┃ 📦 ${cats.length} categorie • ${totCmd} comandi`,
+            `┃ 📂 ${cats.length} categorie`,
+            `┃ ⚡ ${totCmd} comandi`,
             SEP,
-            ...catLines,
-            SEP,
-            `┃ 👇 Tocca *Seleziona categoria*`,
-            `┃ 📜 Tutto: *${P}menu tutti*`,
+            `┃ 👇 Usa il pulsante sotto`,
+            `┃ 📜 *${P}menu tutti*`,
             BOT,
             `🚀 _${cfg.botName} • v${cfg.version}_`
         ].join('\n')
@@ -420,10 +413,11 @@ module.exports = {
                 TOP,
                 `┃ ⚡ *${cfg.botName}*`,
                 `┃ 👋 Ciao${name}!`,
-                `┃ 📦 ${cats.length} categorie • ${totCmd} comandi`,
+                `┃ 📂 ${cats.length} categorie`,
+                `┃ ⚡ ${totCmd} comandi`,
                 SEP,
-                `┃ 👇 Tocca *Seleziona categoria*`,
-                `┃ 📜 Tutto: *${P}menu tutti*`,
+                `┃ 👇 Usa il pulsante sotto`,
+                `┃ 📜 *${P}menu tutti*`,
                 BOT,
                 `🚀 _${cfg.botName} • v${cfg.version}_`
             ].join('\n')

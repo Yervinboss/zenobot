@@ -23,7 +23,7 @@ function saveDB(data) {
     fs.writeFileSync(dbPath, JSON.stringify(data, null, 2));
 }
 function getUser(db, userId) {
-    if (!db[userId]) db[userId] = { level: 1, xp: 0, money: 0, spouse: null };
+    if (!db[userId]) db[userId] = { level: 1, xp: 0, money: 1000, spouse: null };
     return db[userId];
 }
 const formatMoney = (n) => '€' + n.toLocaleString('it-IT');
