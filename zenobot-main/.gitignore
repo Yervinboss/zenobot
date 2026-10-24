@@ -1,9 +1,0 @@
-node_modules/
-session/
-sessione/
-data/
-database/
-logs/
-backups/
-*.log
-.env
