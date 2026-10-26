@@ -1,5 +1,5 @@
 const { isAdmin } = require('../lib/admin')
-const { isOwner } = require('../owner')
+const { isOwner } = require('../lib/owner')
 const perma = require('../lib/perma')
 
 module.exports = {

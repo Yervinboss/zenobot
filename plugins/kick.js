@@ -1,16 +1,7 @@
-const { isAdmin } = require('../lib/admin');
-const { isOwner } = require('../owner')
-const compat = require('../compat')
+const { isAdmin } = require('../lib/utils');
+const { isOwner } = require('../lib/owner');
 
 function pureId(jid) { return jid ? jid.replace(/[^0-9]/g, '') : '' }
-
-async function isAdminOld(sock, jid, sender) {
-  try {
-    const meta = await sock.groupMetadata(jid)
-    const senderPure = pureId(sender)
-    return !!meta.participants.find(p => pureId(p.id) === senderPure && p.admin)
-  } catch { return false }
-}
 
 module.exports = {
   commands: ['kick'],

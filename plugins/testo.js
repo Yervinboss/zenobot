@@ -1,24 +1,18 @@
 'use strict'
 
-// ═══════════════════════════════════════════════════════════════
-//  ZENO MUSIC — .testo <canzone o cantante>
-//  • cerca il testo, mostra copertina + info + testo
-//  • sotto i bottoni: 🎵 Riproduci · 🎬 Video · ➕ Aggiungi a .PL
-//    (i bottoni usano il plugin song.js, quindi serve anche quello)
-//  • .testo da solo → testo dell'ultimo brano cercato con .song
-//  Richiede: yt-search (già usato da song.js) e Node 18+
-// ═══════════════════════════════════════════════════════════════
+// ZENO MUSIC — .testo <canzone o cantante>
+// Un unico messaggio: copertina + info + testo + bottone Riproduci
+// Fonti testi: lrclib.net (2 tentativi) -> riserva: Deezer + lyrics.ovh
 
 const fs = require('fs')
 const path = require('path')
 const yts = require('yt-search')
 
-// stesso database di song.js: così "Riproduci" sa quale brano scaricare
 const dbPath = path.join(__dirname, '../zenomusic_db.json')
-
 const HEADERS = { 'User-Agent': 'ZenoBot/4.5 (WhatsApp bot)' }
-const CHUNK = 3000        // caratteri per messaggio di testo
-const MAX_CHUNKS = 3      // oltre questo il testo viene troncato
+const CAPTION_MAX = 1000
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms))
 
 const readDb = () => {
     if (!fs.existsSync(dbPath)) return {}
@@ -30,23 +24,68 @@ const writeDb = (data) => {
     fs.renameSync(tmp, dbPath)
 }
 
-async function getJson(url) {
-    const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(9000) })
+async function getJson(url, ms = 12000) {
+    const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(ms) })
     if (!res.ok) throw new Error('HTTP ' + res.status)
     return res.json()
 }
 
-// cerca i testi (lrclib.net: database pubblico, nessuna chiave)
-async function searchLyrics(q) {
-    const list = await getJson(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`)
-    return (Array.isArray(list) ? list : [])
-        .filter(x => x && !x.instrumental && x.plainLyrics && x.plainLyrics.trim().length > 20)
+// fonte principale: lrclib, con un secondo tentativo
+async function lrclibSearch(q) {
+    let lastErr
+    for (let i = 0; i < 2; i++) {
+        try {
+            const list = await getJson(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`)
+            return (Array.isArray(list) ? list : [])
+                .filter(x => x && !x.instrumental && x.plainLyrics && x.plainLyrics.trim().length > 20)
+        } catch (e) {
+            lastErr = e
+            await sleep(900)
+        }
+    }
+    throw lastErr
 }
 
-// copertina dell'album (iTunes), se non c'è si userà la miniatura YouTube
+// riserva: Deezer (info + copertina) + lyrics.ovh (testo)
+async function fallbackSearch(q) {
+    const d = await getJson(`https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=5`)
+    const tracks = Array.isArray(d.data) ? d.data : []
+    for (const t of tracks) {
+        const artist = t.artist && t.artist.name
+        const title = t.title_short || t.title
+        if (!artist || !title) continue
+        try {
+            const l = await getJson(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`)
+            let lyr = l && l.lyrics ? String(l.lyrics) : ''
+            lyr = lyr.replace(/^Paroles de la chanson[^\n]*\n+/i, '').trim()
+            if (lyr.length > 20) {
+                return [{
+                    artistName: artist,
+                    trackName: title,
+                    albumName: t.album && t.album.title,
+                    duration: t.duration,
+                    plainLyrics: lyr,
+                    cover: t.album && (t.album.cover_xl || t.album.cover_big)
+                }]
+            }
+        } catch {}
+    }
+    return []
+}
+
+async function searchLyrics(q) {
+    try {
+        const r = await lrclibSearch(q)
+        if (r.length) return r
+    } catch (e) {
+        console.error('[testo] lrclib:', e && e.message)
+    }
+    return fallbackSearch(q)
+}
+
 async function getCover(artist, title) {
     try {
-        const d = await getJson(`https://itunes.apple.com/search?term=${encodeURIComponent(artist + ' ' + title)}&entity=song&limit=1`)
+        const d = await getJson(`https://itunes.apple.com/search?term=${encodeURIComponent(artist + ' ' + title)}&entity=song&limit=1`, 9000)
         const u = d.results && d.results[0] && d.results[0].artworkUrl100
         return u ? u.replace('100x100bb', '600x600bb') : null
     } catch { return null }
@@ -57,17 +96,13 @@ const fmtDur = (s) => {
     return s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '?'
 }
 
-// spezza il testo in messaggi (rispettando le strofe)
-function splitLyrics(text) {
-    const paras = text.replace(/\r/g, '').trim().split(/\n{2,}/)
-    const chunks = []
-    let cur = ''
-    for (const p of paras) {
-        if (cur && (cur + '\n\n' + p).length > CHUNK) { chunks.push(cur); cur = p }
-        else cur = cur ? cur + '\n\n' + p : p
-    }
-    if (cur) chunks.push(cur)
-    return chunks.flatMap(c => c.length > 3800 ? c.match(/[\s\S]{1,3800}/g) : [c])
+function cutLyrics(text, max) {
+    const clean = text.replace(/\r/g, '').trim().replace(/\n{3,}/g, '\n\n')
+    if (clean.length <= max) return { text: clean, cut: false }
+    let part = clean.slice(0, max)
+    const nl = part.lastIndexOf('\n')
+    if (nl > max * 0.5) part = part.slice(0, nl)
+    return { text: part.trim(), cut: true }
 }
 
 module.exports = {
@@ -91,7 +126,6 @@ module.exports = {
 
         let query = (Array.isArray(args) ? args.join(' ') : '').trim()
         if (!query) {
-            // nessun testo: uso l'ultimo brano cercato con .song
             const last = readDb()[sender]
             if (last && typeof last === 'object' && last.title) query = last.title
         }
@@ -110,78 +144,96 @@ module.exports = {
         const artist = best.artistName || 'Sconosciuto'
         const title = best.trackName || query
 
-        // copertina + video (per il pulsante Riproduci) in parallelo
         const [cover, vres] = await Promise.all([
-            getCover(artist, title),
+            best.cover || getCover(artist, title),
             yts(`${artist} ${title}`).catch(() => null)
         ])
         const vid = vres && vres.videos && vres.videos[0]
         const image = cover || (vid && vid.thumbnail) || null
 
-        // altri risultati simili (senza doppioni)
-        const seen = new Set([`${artist}|${title}`.toLowerCase()])
-        const others = []
-        for (const r of results.slice(1)) {
-            const k = `${r.artistName}|${r.trackName}`.toLowerCase()
-            if (seen.has(k)) continue
-            seen.add(k)
-            others.push(`• ${r.artistName} - ${r.trackName}`)
-            if (others.length >= 3) break
-        }
-
-        let header =
+        const header =
             `🎤 *${title}*\n` +
             `👤 ${artist}\n` +
             (best.albumName ? `💿 ${best.albumName}\n` : '') +
-            `⏱ ${fmtDur(best.duration)}`
-        if (others.length) header += `\n\n📚 *Altri risultati:*\n${others.join('\n')}\n_Cercali con ${P}testo artista - titolo_`
+            `⏱ ${fmtDur(best.duration)}\n\n` +
+            `📝 *Testo*\n\n`
+        const suffix = '\n\n_… continua sotto 👇_'
+        const room = CAPTION_MAX - header.length - suffix.length
 
-        // 1) copertina + info
-        try {
-            if (image) await sock.sendMessage(chatId, { image: { url: image }, caption: header }, { quoted: m })
-            else await reply(header)
-        } catch { await reply(header) }
+        // testo normalizzato: parte nella didascalia + resto in messaggi separati
+        const clean = best.plainLyrics.replace(/\r/g, '').trim().replace(/\n{3,}/g, '\n\n')
+        const lyr = cutLyrics(clean, Math.max(room, 200))
+        const caption = header + lyr.text + (lyr.cut ? suffix : '')
 
-        // 2) testo
-        const chunks = splitLyrics(best.plainLyrics)
-        const shown = chunks.slice(0, MAX_CHUNKS)
-        for (let i = 0; i < shown.length; i++) {
-            let t = shown[i]
-            if (i === 0) t = `📝 *Testo*\n\n${t}`
-            if (i === shown.length - 1 && chunks.length > MAX_CHUNKS) t += '\n\n_… testo troncato_'
-            await sock.sendMessage(chatId, { text: t })
-        }
-        await react('✅')
-
-        // 3) bottoni sotto il testo (usano il plugin song)
-        if (!vid) return
-        try {
-            const db = readDb()
-            db[sender] = {
-                url: vid.url,
-                title: vid.title,
-                duration: vid.timestamp,
-                seconds: vid.seconds,
-                author: vid.author && vid.author.name,
-                thumbnail: vid.thumbnail
+        const restChunks = []
+        if (lyr.cut) {
+            let rest = clean.slice(lyr.text.length).trim()
+            while (rest.length) {
+                if (rest.length <= 3000) { restChunks.push(rest); break }
+                let cut = rest.lastIndexOf('\n\n', 3000)
+                if (cut < 1000) cut = rest.lastIndexOf('\n', 3000)
+                if (cut < 1000) cut = 3000
+                restChunks.push(rest.slice(0, cut).trim())
+                rest = rest.slice(cut).trim()
             }
-            writeDb(db)
-        } catch (e) { console.error('[testo] db:', e && e.message); return }
-
-        try {
-            await sock.sendMessage(chatId, {
-                text: '🎧 Vuoi ascoltarla?',
-                footer: '⚡ Zeno Bot - Music Player',
-                buttons: [
-                    { buttonId: 'sendnormal', buttonText: { displayText: '🎵 Riproduci' }, type: 1 },
-                    { buttonId: 'sendvideo', buttonText: { displayText: '🎬 Video MP4' }, type: 1 },
-                    { buttonId: 'addplaylist', buttonText: { displayText: '➕ Aggiungi a .PL' }, type: 1 }
-                ],
-                headerType: 1
-            }, { quoted: m })
-        } catch (e) {
-            console.error('[testo] bottoni:', e && e.message)
-            await reply(`🎧 Per ascoltarla scrivi *${P}sendnormal* (vocale), *${P}sendmp3* o *${P}sendvideo*`)
         }
+
+        let canPlay = false
+        if (vid) {
+            try {
+                const db = readDb()
+                db[sender] = {
+                    url: vid.url,
+                    title: vid.title,
+                    duration: vid.timestamp,
+                    seconds: vid.seconds,
+                    author: vid.author && vid.author.name,
+                    thumbnail: vid.thumbnail
+                }
+                writeDb(db)
+                canPlay = true
+            } catch (e) { console.error('[testo] db:', e && e.message) }
+        }
+
+        const buttons = canPlay
+            ? [{ buttonId: 'sendnormal', buttonText: { displayText: '🎵 Riproduci' }, type: 1 }]
+            : undefined
+
+        // 1) copertina + info + inizio testo + bottone
+        try {
+            if (image) {
+                await sock.sendMessage(chatId, {
+                    image: { url: image },
+                    caption,
+                    footer: '⚡ Zeno Bot - Music Player',
+                    ...(buttons ? { buttons, headerType: 4 } : {})
+                }, { quoted: m })
+            } else {
+                await sock.sendMessage(chatId, {
+                    text: caption,
+                    footer: '⚡ Zeno Bot - Music Player',
+                    ...(buttons ? { buttons, headerType: 1 } : {})
+                }, { quoted: m })
+            }
+        } catch (e) {
+            console.error('[testo] invio:', e && e.message)
+            try {
+                if (image) await sock.sendMessage(chatId, { image: { url: image }, caption }, { quoted: m })
+                else await reply(caption)
+                if (canPlay) await reply(`🎧 Per ascoltarla scrivi *${P}sendnormal*`)
+            } catch (e2) {
+                console.error('[testo] fallback:', e2 && e2.message)
+                await react('❌')
+                return err('Errore durante l\'invio del testo.')
+            }
+        }
+
+        // 2) resto del testo
+        for (const chunk of restChunks) {
+            try { await sock.sendMessage(chatId, { text: chunk }) }
+            catch (e) { console.error('[testo] resto:', e && e.message); break }
+        }
+
+        await react('✅')
     }
 }

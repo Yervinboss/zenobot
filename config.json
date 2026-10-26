@@ -35,7 +35,7 @@
     "autoBackupIntervalMs": 21600000,
     "heartbeatIntervalMs": 60000,
     "msgCacheTtlSec": 600,
-    "theme": "zeno",
+    "theme": "soft",
     "cardMode": "auto",
     "library": "@itsliaaa/baileys",
     "iosMode": "carousel",
