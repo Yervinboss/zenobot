@@ -213,7 +213,7 @@ const box = async (ctx, title, lines, buttons) => sendB(ctx, await ctx.ui.box(ti
 
 const CMD = {}
 
-CMD.pokemon = async ({ ctx, P }) => {
+CMD.pokemenu = async ({ ctx, P }) => {
     await box(ctx, '🔴 POKÉMON RPG', [
         { section: 'Inizio' },
         `▸ *${P}starter* scegli il tuo primo Pokémon`,
@@ -226,12 +226,12 @@ CMD.pokemon = async ({ ctx, P }) => {
         `▸ *${P}poketeam* la tua squadra`,
         `▸ *${P}pokeprincipale <n>* scegli il principale`,
         `▸ *${P}pokerilascia <n> si* libera un Pokémon`,
-        `▸ *${P}pokedex* Pokémon incontrati`,
+        `▸ *${P}pokedexrpg* Pokémon incontrati`,
         { section: 'Negozio' },
         `▸ *${P}pokeshop* lista ball`,
         `▸ *${P}pokecompra <ball> [quantità]*`
     ], [BTN('poketeam', '🎒 Squadra'), BTN('cattura', '🌿 Cattura'), BTN('allena', '⚔️ Allena')])
-    return sendB(ctx, '➕ *Altre azioni*', [BTN('pokelotta', '🥊 Lotta'), BTN('pokedex', '📖 Pokédex'), BTN('pokeshop', '🛒 Negozio')])
+    return sendB(ctx, '➕ *Altre azioni*', [BTN('pokelotta', '🥊 Lotta'), BTN('pokedexrpg', '📖 Pokédex'), BTN('pokeshop', '🛒 Negozio')])
 }
 
 CMD.starter = async ({ ctx, args, db, sender, P }) => {
@@ -297,7 +297,7 @@ CMD.pokerilascia = async ({ ctx, args, db, user, P }) => {
     return sendB(ctx, `👋 Hai liberato *${p.name}* ${p.emoji}.\n💰 Hai ricevuto *${reward}* monete.`, [BTN('poketeam', '🎒 Squadra')])
 }
 
-CMD.pokedex = async ({ ctx, user }) => {
+CMD.pokedexrpg = async ({ ctx, user }) => {
     const names = Object.keys(SPECIES)
     const seen = names.filter(n => user.dex.includes(n))
     return box(ctx, '📖 POKÉDEX', [
@@ -477,13 +477,13 @@ CMD.pokelotta = async ({ ctx, db, user }) => {
         [BTN('pokelotta', res.win ? '🥊 Altra lotta' : '🔥 Rivincita'), BTN('allena', '💪 Allena'), BTN('poketeam', '🎒 Squadra')])
 }
 
-const ALIAS = { inizia: 'starter', squadra: 'poketeam', pokenegozio: 'pokeshop', pokehelp: 'pokemon' }
+const ALIAS = { inizia: 'starter', squadra: 'poketeam', pokenegozio: 'pokeshop', pokehelp: 'pokemenu' }
 
 module.exports = {
     commands: [
         'starter', 'inizia', 'poketeam', 'squadra', 'cattura', 'allena',
-        'pokemon', 'pokehelp', 'pokelotta', 'pokeprincipale', 'pokerilascia',
-        'pokedex', 'pokebonus', 'pokeshop', 'pokenegozio', 'pokecompra'
+        'pokemenu', 'pokehelp', 'pokelotta', 'pokeprincipale', 'pokerilascia',
+        'pokedexrpg', 'pokebonus', 'pokeshop', 'pokenegozio', 'pokecompra'
     ],
     category: 'pokemon',
     description: 'Il mondo Pokémon RPG',
@@ -497,7 +497,7 @@ module.exports = {
         const c = ALIAS[raw] || raw
         const db = readDb()
 
-        if (c === 'pokemon') return CMD.pokemon({ ctx, P })
+        if (c === 'pokemenu') return CMD.pokemenu({ ctx, P })
         if (c === 'starter') return CMD.starter({ ctx, args, db, sender, P })
 
         if (!db[sender]) {

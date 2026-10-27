@@ -30,6 +30,8 @@ const CAT_INFO = {
     moderazione: ['🚨'],
     giochi:      ['🎮'],
     rpg:         ['🎰'],
+    pokemon:     ['🔴'],
+    musica:      ['🎵'],
     fun:         ['🎉'],
     media:       ['🖼️'],
     creatore:    ['🛠️']
@@ -44,11 +46,15 @@ const CAT_ALIAS = {
     general: 'moderazione',
     owner: 'creatore',
     sticker: 'media',
-    musica: 'media',
     download: 'media'
 }
 
-const ORDER = ['staff', 'moderazione', 'funzioni', 'admin', 'gruppo', 'giochi', 'rpg', 'fun', 'media', 'creatore']
+const ORDER = ['staff', 'moderazione', 'funzioni', 'admin', 'gruppo', 'giochi', 'rpg', 'pokemon', 'musica', 'fun', 'media', 'creatore']
+
+// Plugin con più comandi: nel menu compaiono tutti, non solo il primo
+const MULTI = new Set(['starter', 'sp', 'testo', 'negozio', 'pesca'])
+const HIDE = new Set(['inizia', 'squadra', 'pokehelp', 'pokenegozio', 'shop', 'zaino', 'lyrics'])
+const shown = (p) => (MULTI.has(primary(p)) ? p.commands.filter(c => typeof c === 'string' && !HIDE.has(c)) : [primary(p)])
 
 const RULES = [
     ['funzioni', /^(anti[a-z0-9]*|welcome|goodbye|benvenuto|addio|soloadmin\w*|modoadmin|rileva|detect|slowmode|reaction|antispam|ping)$/],
@@ -219,11 +225,11 @@ function visibleCats(ctx) {
 async function sendSub(ctx, { cat, list }) {
     const [emo] = info(cat)
     const P = ctx.prefix
-    const lines = list.map(p => `┃ ▸ *${P}${primary(p)}*`)
+    const lines = list.flatMap(p => shown(p).map(c => `┃ ▸ *${P}${c}*`))
     const box = [
         TOP,
         `┃ ${emo}  *${cat.toUpperCase()}*`,
-        `┃ 📦 ${list.length} comandi`,
+        `┃ 📦 ${lines.length} comandi`,
         SEP,
         ...lines,
         SEP,
@@ -331,12 +337,12 @@ async function sendMainMenu(ctx, cats) {
     
     const rows = cats.map(({ cat, list }) => {
         const [emo] = info(cat)
-        return { title: `${emo} ${cat.toUpperCase()}`, description: `${list.length} comandi`, id: `${P}menu ${cat}` }
+        return { title: `${emo} ${cat.toUpperCase()}`, description: `${list.reduce((n, p) => n + shown(p).length, 0)} comandi`, id: `${P}menu ${cat}` }
     })
     
     if (!rows.length) return ctx.err('Nessuna categoria disponibile.')
 
-    const totCmd = cats.reduce((n, c) => n + c.list.length, 0)
+    const totCmd = cats.reduce((n, c) => n + c.list.reduce((k, p) => k + shown(p).length, 0), 0)
     const name = ctx.pushName ? ` *${ctx.pushName}*` : ''
 
     let caption = [
@@ -421,7 +427,7 @@ module.exports = {
             const lines = []
             for (const { cat, list } of cats) {
                 lines.push({ section: `${info(cat)[0]} ${cat.toUpperCase()}` })
-                lines.push({ raw: list.map(p => ctx.prefix + primary(p)).join('  ') })
+                lines.push({ raw: list.flatMap(shown).map(c => ctx.prefix + c).join('  ') })
             }
             const box = ctx.ui.box('TUTTI I COMANDI', lines)
             for (const part of chunkArr(box.split('\n'), 60).map(x => x.join('\n'))) await ctx.reply(part)

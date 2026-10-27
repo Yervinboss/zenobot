@@ -7,3 +7,11 @@ logs/
 backups/
 *.log
 .env
+*.bak*
+lastfm_key.txt
+sp_db.json
+sp_likes.json
+sp_cards.json
+pokemon_db.json
+zenomusic_db.json
+playlist_db.json

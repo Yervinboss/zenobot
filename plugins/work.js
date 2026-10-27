@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { pureId } = require('../lib/utils');
+const B = require('../lib/boost');
 
 const dbPath = path.join(__dirname, '../database/rpg.json');
 const COOLDOWN_MS = 30 * 1000;
@@ -40,8 +41,10 @@ module.exports = {
             }, { quoted: m });
         }
 
-        const earnedMoney = randomBetween(500, 2000);
-        const earnedXp = randomBetween(30, 70);
+        let earnedMoney = randomBetween(500, 2000);
+        let earnedXp = randomBetween(30, 70);
+        const fx = B.start(user, 'work').earn(earnedMoney, earnedXp);
+        earnedMoney = fx.money; earnedXp = fx.xp;
 
         user.money += earnedMoney;
         user.xp += earnedXp;
@@ -70,6 +73,7 @@ module.exports = {
 
         txt += `\n📊 Lvl: *${user.level}* | XP: ${user.xp}/${needed} | 💰 ${formatMoney(user.money)}`;
 
+        if (fx.notes.length) txt += '\n' + fx.notes.join('\n') + '\n';
         saveDB(db);
 
         return await sock.sendMessage(jid, {

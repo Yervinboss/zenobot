@@ -1,6 +1,11 @@
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
+// ── sicurezza: niente caratteri da shell negli URL ──
+const SAFE_URL = /^https?:\/\/[^\s"'`$\\;|<>(){}\[\]^]+$/i;
+const isSafeUrl = (u) => typeof u === 'string' && u.length <= 600 && SAFE_URL.test(u);
+const safeUrl = (u) => (isSafeUrl(u) ? u : 'https://invalid.invalid/');
+
 const yts = require('yt-search');
 
 const playlistDbPath = path.join(__dirname, '../playlist_db.json');
@@ -44,7 +49,7 @@ function downloadAndConvert(trackUrl, timestamp) {
     return new Promise((resolve, reject) => {
         const inputMp3 = path.join(__dirname, `_temp_${timestamp}.mp3`);
         const outputOgg = path.join(__dirname, `_temp_${timestamp}.ogg`);
-        const yt_command = `yt-dlp -x --audio-format mp3 --audio-quality 128k --no-part --extractor-args youtube:player-client=android,web -o "${inputMp3}" "${trackUrl}"`;
+        const yt_command = `yt-dlp -x --audio-format mp3 --audio-quality 128k --no-part --extractor-args youtube:player-client=android,web -o "${inputMp3}" "${safeUrl(trackUrl)}"`;
         exec(yt_command, (error) => {
             if (error || !fs.existsSync(inputMp3)) {
                 if (fs.existsSync(inputMp3)) fs.unlinkSync(inputMp3);
@@ -158,7 +163,7 @@ async function processQueue(sock, jid, sender) {
     let timestamp = Date.now();
     let inputMp3 = path.join(__dirname, `_temp_pl_${timestamp}.mp3`);
     let outputOgg = path.join(__dirname, `vocale_pl_${timestamp}.ogg`);
-    let yt_command = `yt-dlp -x --audio-format mp3 --audio-quality 128k --no-part --extractor-args youtube:player-client=android,web -o "${inputMp3}" "${track.url}"`;
+    let yt_command = `yt-dlp -x --audio-format mp3 --audio-quality 128k --no-part --extractor-args youtube:player-client=android,web -o "${inputMp3}" "${safeUrl(track.url)}"`;
 
     exec(yt_command, async (error) => {
         if (error) {
@@ -193,7 +198,7 @@ async function playSingle(sock, jid, sender, track, m) {
     let timestamp = Date.now();
     let inputMp3 = path.join(__dirname, `_temp_pl_${timestamp}.mp3`);
     let outputOgg = path.join(__dirname, `vocale_pl_${timestamp}.ogg`);
-    let yt_command = `yt-dlp -x --audio-format mp3 --audio-quality 128k --no-part --extractor-args youtube:player-client=android,web -o "${inputMp3}" "${track.url}"`;
+    let yt_command = `yt-dlp -x --audio-format mp3 --audio-quality 128k --no-part --extractor-args youtube:player-client=android,web -o "${inputMp3}" "${safeUrl(track.url)}"`;
     exec(yt_command, async (error) => {
         if (error) {
             if (fs.existsSync(inputMp3)) fs.unlinkSync(inputMp3);
@@ -322,7 +327,7 @@ module.exports = {
 
         if (sub === 'add') {
             let link = rest.trim();
-            if (!link.startsWith('http'))
+            if (!isSafeUrl(link))
                 return await sock.sendMessage(jid, { text: '❌ Inserisci un link valido dopo `add` (Esempio: `.pl add [link]`).' }, { quoted: m });
 
             if (link.includes('spotify.com')) {
@@ -349,8 +354,8 @@ module.exports = {
                 return await sock.sendMessage(jid, { text: `✅ Aggiunti *${added}* brani da Spotify alla playlist!` }, { quoted: m });
             }
 
-            let dumpCmd = `yt-dlp --flat-playlist --dump-json "${link}"`;
-            exec(dumpCmd, { maxBuffer: 1024 * 1024 * 10 }, async (err, stdout) => {
+            // il comando gira senza shell (execFile qui sotto)
+            execFile('yt-dlp', ['--flat-playlist', '--dump-json', '--', link], { maxBuffer: 1024 * 1024 * 10 }, async (err, stdout) => {
                 if (err)
                     return await sock.sendMessage(jid, { text: '❌ Errore durante la lettura del link.' }, { quoted: m });
                 let lines = stdout.trim().split('\n');

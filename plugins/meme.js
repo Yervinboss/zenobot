@@ -115,6 +115,11 @@ module.exports = {
             // Sticker WebP -> PNG per Jimp
             if (isSticker) buffer = await convert(buffer, 'webp', 'png')
 
+            // 🔒 solo file immagine veri (evita file costruiti per bloccare la libreria)
+            const b = buffer
+            const okImg = (b[0] === 0xFF && b[1] === 0xD8) || (b[0] === 0x89 && b[1] === 0x50) ||
+                b.slice(0, 3).toString() === 'GIF' || b.slice(8, 12).toString() === 'WEBP'
+            if (!okImg) return ctx.err('Formato immagine non supportato.')
             const image = await Jimp.read(buffer)
 
             const parts = raw.split('|').map(s => s.trim().toUpperCase())

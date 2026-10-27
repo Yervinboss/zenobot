@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { pureId, getTarget } = require('../lib/utils');
+const B = require('../lib/boost');
 
 const dbPath = path.join(__dirname, '../database/rpg.json');
 const COOLDOWN_MS = 45 * 1000;
@@ -66,7 +67,31 @@ module.exports = {
         if (senderId === targetId)
             return await sock.sendMessage(jid, { text: '❌ Vuoi rubare a te stesso? 🤡' }, { quoted: m });
 
+        // 🔒 il bersaglio deve essere un membro del gruppo (e non il bot)
+        try {
+            const botSelf = (sock.user?.id || '').split(':')[0].split('@')[0];
+            if (targetId === botSelf)
+                return await sock.sendMessage(jid, { text: '❌ Non puoi derubare il bot!' }, { quoted: m });
+            const meta = await sock.groupMetadata(jid);
+            const want = new Set([targetId]);
+            try {
+                const lm = sock.signalRepository && sock.signalRepository.lidMapping;
+                if (lm) {
+                    const isLid = String(targetJid).endsWith('@lid');
+                    const d = targetId + (isLid ? '@lid' : '@s.whatsapp.net');
+                    const alt = isLid
+                        ? (lm.getPNForLID ? await lm.getPNForLID(d) : null)
+                        : (lm.getLIDForPN ? await lm.getLIDForPN(d) : null);
+                    if (alt) want.add(pureId(alt));
+                }
+            } catch {}
+            const inGroup = meta.participants.some(p => [p.id, p.lid, p.phoneNumber, p.jid].some(x => x && want.has(pureId(x))));
+            if (!inGroup)
+                return await sock.sendMessage(jid, { text: '❌ Questo utente non è nel gruppo.' }, { quoted: m });
+        } catch {}
         const targetUser = getUser(db, targetId);
+        if (B.shielded(targetUser))
+            return await sock.sendMessage(jid, { text: `🛡️ @${targetId} è *Blindato*: impossibile derubarlo!`, mentions: [targetJid] }, { quoted: m });
         if (targetUser.money <= 0)
             return await sock.sendMessage(jid, {
                 text: `❌ @${targetId} è al verde, non ha niente da rubare!`,

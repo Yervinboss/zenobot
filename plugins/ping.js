@@ -2,6 +2,7 @@ const os = require('os');
 const fs = require('fs');
 const path = require('path');
 const { sendButtons } = require('../lib/utils');
+const { isOwner } = require('../lib/owner');
 
 const toMath = (num) => {
     const map = { '0':'𝟎','1':'𝟏','2':'𝟐','3':'𝟑','4':'𝟒','5':'𝟓','6':'𝟔','7':'𝟕','8':'𝟖','9':'𝟗','.':'.' };
@@ -36,6 +37,10 @@ module.exports = {
 
     run: async (sock, m, args, cmd) => {
         const jid = m.key.remoteJid;
+
+        // 🔒 solo owner per i comandi di pulizia
+        if (['clean', 'pulisci', 'clearsessions', 'sessioni'].includes(cmd) && !isOwner(m.key.participant || m.key.remoteJid))
+            return await sock.sendMessage(jid, { text: '❌ Comando riservato al proprietario.' }, { quoted: m });
 
         // 🧹 Pulisci RAM
         if (cmd === 'clean' || cmd === 'pulisci') {

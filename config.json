@@ -49,6 +49,8 @@
     "cardFooter": "ZENO ULTIMATE",
     "cardsPerPage": 10,
     "stackMax": 8,
+    "paymentCurrency": "EUR",
+    "paymentUrl": "",
     "botName": "ZENO ULTIMATE",
     "version": "4.6.0"
 }

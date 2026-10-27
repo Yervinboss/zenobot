@@ -14,8 +14,6 @@
   "dependencies": {
     "@hapi/boom": "^10.0.1",
     "@itsliaaa/baileys": "^0.3.18-final",
-    "@kyyinfinite/baileys": "^2.1.0",
-    "@realvare/baileys": "^1.0.6",
     "@whiskeysockets/baileys": "^7.0.0-rc14",
     "fluent-ffmpeg": "^2.1.3",
     "jimp": "^0.22.12",
@@ -35,5 +33,8 @@
     "@whiskeysockets/baileys@6.7.24": true,
     "@whiskeysockets/baileys@7.0.0-rc14": true,
     "protobufjs@7.6.6": true
+  },
+  "overrides": {
+    "minimatch": "3.1.5"
   }
 }
