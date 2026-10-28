@@ -19,6 +19,7 @@
     "jimp": "^0.22.12",
     "node-cache": "^5.1.2",
     "node-shazam": "^1.2.7",
+    "node-webpmux": "^3.2.1",
     "pino": "^10.4.0",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
