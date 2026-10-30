@@ -1,193 +1,216 @@
-const fs = require('fs');
-const path = require('path');
-const { exec, execFile } = require('child_process');
-const util = require('util');
-const yts = require('yt-search');
-const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-const { sendButtons } = require('../lib/utils');
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+import {
+  SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  AttachmentBuilder, MessageFlags,
+} from 'discord.js';
 
-const run = util.promisify(execFile);
+// --- IMPORTAZIONE SHAZAMIO-API ---
+let yts, shazam;
+try {
+  const ytsModule = await import('yt-search');
+  yts = ytsModule.default || ytsModule;
 
-const playlistDbPath = path.join(__dirname, '../playlist_db.json');
-const shazamDbPath = path.join(__dirname, '../shazam_music_db.json');
-const tmpDir = path.join(__dirname, '..', 'tmp_shazam');
-if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
+  const shazamModule = await import('shazamio-api');
+  shazam = shazamModule.default;
 
-// 🎧 Lazy init di shazamio-api (è ESM)
-let shazamInstance = null;
-async function getShazam() {
-    if (shazamInstance) return shazamInstance;
-    try {
-        const mod = await import('shazamio-api');
-        shazamInstance = mod.default || mod;
-        console.log('✅ shazamio-api caricato (recognize:', typeof shazamInstance.recognize + ')');
-        return shazamInstance;
-    } catch (e) {
-        console.error('❌ shazamio-api errore:', e.message);
-        return null;
-    }
+  console.log("✅ Moduli Shazam (shazamio-api) e yt-search caricati correttamente");
+} catch (e) {
+  console.error("❌ ERRORE CRITICO DI IMPORTAZIONE in shazam.js:", e);
+  throw e; 
 }
 
-function readDb(p) {
-    if (!fs.existsSync(p)) return {};
-    try { return JSON.parse(fs.readFileSync(p, 'utf-8')); } catch { return {}; }
-}
-function writeDb(p, data) { fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf-8'); }
+const run = promisify(execFile);
+const PLAYLIST_DB = path.resolve('playlist_db.json');
+const MAX_UPLOAD = 10 * 1024 * 1024;
+const YT_ID = /^[\w-]{11}$/;
 
-async function downloadMedia(message, type) {
-    const stream = await downloadContentFromMessage(message, type);
-    let buffer = Buffer.from([]);
-    for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-    return buffer;
-}
+global.shazamCache = global.shazamCache || new Map();
 
-module.exports = {
-    commands: ['shazam', 'shazam_play', 'shazam_add_pl'],
-    run: async (sock, m, args, cmd) => {
-        const jid = m.key.remoteJid;
-        const sender = m.key.participant || m.participant || jid;
+const tmp = (name) => path.join(os.tmpdir(), name);
+const rm = (p) => { try { if (p && fs.existsSync(p)) fs.rmSync(p, { force: true }); } catch {} };
+const isInteraction = (ctx) => typeof ctx.isChatInputCommand === 'function';
+const cid = (action, uid) => `shz:${action}:${uid}`;
+const url = (id) => `https://www.youtube.com/watch?v=${id}`;
 
-        // === Aggiungi a playlist ===
-        if (cmd === 'shazam_add_pl') {
-            const musicDb = readDb(shazamDbPath);
-            const track = musicDb[jid];
-            const url = typeof track === 'object' ? track.url : track;
-            const title = typeof track === 'object' ? track.title : 'Brano da Shazam';
-            const duration = typeof track === 'object' ? track.duration : '--:--';
-            if (!url) return await sock.sendMessage(jid, { text: '❌ Traccia scaduta. Rifai `.shazam`.' }, { quoted: m });
-
-            const plDb = readDb(playlistDbPath);
-            if (!plDb[sender]) plDb[sender] = [];
-            if (plDb[sender].some(t => t.url === url))
-                return await sock.sendMessage(jid, { text: '⚠️ Già presente nella playlist!' }, { quoted: m });
-
-            plDb[sender].push({ title, url, duration });
-            writeDb(playlistDbPath, plDb);
-            return await sock.sendMessage(jid, { text: `✅ Aggiunto a .pl!\n🎵 *${title}*` }, { quoted: m });
-        }
-
-        // === Riproduci ===
-        if (cmd === 'shazam_play') {
-            const musicDb = readDb(shazamDbPath);
-            const track = musicDb[jid];
-            const url = typeof track === 'object' ? track.url : track;
-            if (!url) return await sock.sendMessage(jid, { text: '❌ Traccia scaduta. Rifai `.shazam`.' }, { quoted: m });
-
-            await sock.sendMessage(jid, { react: { text: '🎧', key: m.key } });
-
-            const inputMp3 = path.join(tmpDir, `_shazam_${Date.now()}.mp3`);
-            const outputOgg = path.join(tmpDir, `shazam_${Date.now()}.ogg`);
-
-            exec(`yt-dlp -x --audio-format mp3 --audio-quality 0 --extractor-args youtube:player-client=android,web -o "${inputMp3}" "${url}"`, (err) => {
-                if (err) return sock.sendMessage(jid, { text: '❌ Errore download.' }, { quoted: m });
-                exec(`ffmpeg -y -i "${inputMp3}" -c:a libopus -b:a 192k -ar 48000 -ac 1 -application voip -map_metadata -1 -f ogg "${outputOgg}"`, async (err2) => {
-                    if (fs.existsSync(inputMp3)) fs.unlinkSync(inputMp3);
-                    if (err2 || !fs.existsSync(outputOgg))
-                        return await sock.sendMessage(jid, { text: '❌ Errore conversione.' }, { quoted: m });
-
-                    try {
-                        const buf = fs.readFileSync(outputOgg);
-                        await sock.sendMessage(jid, { audio: buf, mimetype: 'audio/ogg; codecs=opus', ptt: true }, { quoted: m });
-                        await sock.sendMessage(jid, { react: { text: '✅', key: m.key } });
-                    } finally {
-                        setTimeout(() => { if (fs.existsSync(outputOgg)) fs.unlinkSync(outputOgg); }, 5000);
-                    }
-                });
-            });
-            return;
-        }
-
-        // === Shazam principale ===
-        if (cmd === 'shazam') {
-            const shazam = await getShazam();
-            if (!shazam || typeof shazam.recognize !== 'function')
-                return await sock.sendMessage(jid, { text: '❌ shazamio-api non disponibile. Esegui: `npm install shazamio-api`' }, { quoted: m });
-
-            const msg = m.message || {};
-            const ctx = msg.extendedTextMessage?.contextInfo || msg.audioMessage?.contextInfo || msg.videoMessage?.contextInfo || {};
-            let quoted = ctx.quotedMessage;
-            if (quoted?.viewOnceMessage?.message) quoted = quoted.viewOnceMessage.message;
-            else if (quoted?.viewOnceMessageV2?.message) quoted = quoted.viewOnceMessageV2.message;
-
-            const audioMsg = quoted?.audioMessage || msg.audioMessage;
-            const videoMsg = quoted?.videoMessage || msg.videoMessage;
-            if (!audioMsg && !videoMsg)
-                return await sock.sendMessage(jid, { text: '🎧 *ZENO SHAZAM*\n\n❌ Rispondi a un vocale/audio/video con `.shazam`!' }, { quoted: m });
-
-            await sock.sendMessage(jid, { react: { text: '🔎', key: m.key } });
-
-            const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-            const tmpIn = path.join(tmpDir, `sh_in_${id}`);
-            const tmpMp3 = path.join(tmpDir, `sh_clip_${id}.mp3`);
-
-            try {
-                let buffer;
-                if (audioMsg) {
-                    buffer = await downloadMedia(audioMsg, 'audio');
-                    fs.writeFileSync(tmpIn + '.ogg', buffer);
-                } else {
-                    buffer = await downloadMedia(videoMsg, 'video');
-                    fs.writeFileSync(tmpIn + '.mp4', buffer);
-                }
-
-                // ffmpeg args come nel tuo Discord
-                const inputFile = audioMsg ? tmpIn + '.ogg' : tmpIn + '.mp4';
-                const ffArgs = ['-y', '-i', inputFile, '-t', '15', '-ar', '44100', '-ac', '1'];
-                if (videoMsg) ffArgs.push('-vn');
-                ffArgs.push(tmpMp3);
-
-                await run('ffmpeg', ffArgs, { timeout: 60 * 1000 });
-                if (!fs.existsSync(tmpMp3)) throw new Error('Estrazione audio fallita');
-
-                // 🎧 Riconoscimento
-                const result = await shazam.recognize(tmpMp3);
-                const track = result?.track;
-
-                if (!track || !track.title) {
-                    await sock.sendMessage(jid, { react: { text: '❌', key: m.key } });
-                    return await sock.sendMessage(jid, { text: '❌ Non ho riconosciuto la canzone.' }, { quoted: m });
-                }
-
-                const title = track.title || 'Sconosciuto';
-                const artist = track.subtitle || 'Sconosciuto';
-                const album = track.sections?.find(s => s.metadata)?.metadata?.find(md => md.title === 'Album')?.text;
-
-                let txt = `🎧 *ZENO SHAZAM*\n\n🎵 *${title}*\n🎤 *${artist}*\n`;
-                if (album) txt += `💿 *${album}*\n`;
-                await sock.sendMessage(jid, { react: { text: '🎵', key: m.key } });
-
-                try {
-                    const search = await yts(`${artist} ${title}`);
-                    const v = search?.videos?.[0];
-                    if (v) {
-                        const musicDb = readDb(shazamDbPath);
-                        musicDb[jid] = { url: v.url, title: `${artist} - ${title}`, duration: v.timestamp || '--:--' };
-                        writeDb(shazamDbPath, musicDb);
-
-                        return await sendButtons(
-                            sock, jid, txt, 'Zeno Bot - Shazam',
-                            [
-                                { text: '🎧 Riproduci', id: 'shazam_play' },
-                                { text: '➕ Aggiungi a PL', id: 'shazam_add_pl' }
-                            ],
-                            m
-                        );
-                    }
-                } catch (e) { console.error('yt-search:', e.message); }
-
-                return await sock.sendMessage(jid, { text: txt }, { quoted: m });
-
-            } catch (e) {
-                console.error('[SHAZAM]', e.message);
-                await sock.sendMessage(jid, { react: { text: '❌', key: m.key } });
-                return await sock.sendMessage(jid, { text: '❌ Errore riconoscimento.' }, { quoted: m });
-            } finally {
-                for (const ext of ['.ogg', '.mp4']) {
-                    const f = tmpIn + ext;
-                    if (fs.existsSync(f)) fs.unlinkSync(f);
-                }
-                if (fs.existsSync(tmpMp3)) fs.unlinkSync(tmpMp3);
-            }
-        }
-    }
+const readDb = () => {
+  if (!fs.existsSync(PLAYLIST_DB)) return {};
+  try { return JSON.parse(fs.readFileSync(PLAYLIST_DB, 'utf8')); } catch { return {}; }
 };
+
+async function findAttachment(ctx) {
+  if (isInteraction(ctx)) return ctx.options.getAttachment('file');
+  let att = ctx.attachments.first();
+  if (!att && ctx.reference?.messageId) {
+    const ref = await ctx.channel.messages.fetch(ctx.reference.messageId).catch(() => null);
+    att = ref?.attachments.first();
+  }
+  return att;
+}
+
+async function downloadAudio(id) {
+  const base = tmp(`zeno_shz_${id}_${Date.now()}`);
+  await run('yt-dlp', [
+    '--no-playlist', '-q', '--no-warnings', '--no-progress',
+    '-x', '--audio-format', 'mp3', '--audio-quality', '128K',
+    '--extractor-args', 'youtube:player-client=android,web',
+    '-o', `${base}.%(ext)s`, url(id),
+  ], { timeout: 5 * 60 * 1000, maxBuffer: 10 * 1024 * 1024 });
+  const file = `${base}.mp3`;
+  if (!fs.existsSync(file)) throw new Error('file non generato');
+  return file;
+}
+
+export const data = new SlashCommandBuilder()
+  .setName('shazam')
+  .setDescription('Riconosce una canzone da un audio o video')
+  .addAttachmentOption((o) => o.setName('file').setDescription('Audio o video con la canzone').setRequired(true));
+
+export async function execute(ctx) {
+  const slash = isInteraction(ctx);
+  const user = slash ? ctx.user : ctx.author;
+  const say = (payload) => (slash ? ctx.editReply(payload) : ctx.reply(payload));
+
+  const att = await findAttachment(ctx);
+  if (!att) {
+    return ctx.reply('🎧 **ZENO SHAZAM**\n\n❌ Rispondi a un audio o video con `.shazam`, oppure usa `/shazam` e allega il file!');
+  }
+
+  const type = att.contentType || '';
+  if (!type.startsWith('audio') && !type.startsWith('video')) {
+    return ctx.reply('❌ Devi allegare (o citare) un audio o un video.');
+  }
+
+  if (slash) await ctx.deferReply();
+  else await ctx.react('🔎').catch(() => {});
+
+  const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const ext = type.startsWith('video') ? 'mp4' : path.extname(att.name || '.ogg') || '.ogg';
+  const input = tmp(`zeno_shz_in_${id}${ext}`);
+  const clip15 = tmp(`zeno_shz_clip_${id}.mp3`);
+
+  try {
+    const res = await fetch(att.url);
+    if (!res.ok) throw new Error(`download allegato: ${res.status}`);
+    fs.writeFileSync(input, Buffer.from(await res.arrayBuffer()));
+
+    const args = ['-y', '-i', input, '-t', '15', '-ar', '44100', '-ac', '1'];
+    if (type.startsWith('video')) args.push('-vn');
+    args.push(clip15);
+    
+    await run('ffmpeg', args, { timeout: 60 * 1000 });
+    if (!fs.existsSync(clip15)) throw new Error('estrazione audio fallita');
+
+    // --- RICONOSCIMENTO CON SHAZAMIO-API ---
+    const result = await shazam.recognize(clip15);
+    const track = result?.track;
+
+    if (!track) {
+      if (!slash) await ctx.react('❌').catch(() => {});
+      return say('❌ Non sono riuscito a riconoscere questa canzone.');
+    }
+
+    const title = track.title || 'Sconosciuto';
+    const artist = track.subtitle || 'Sconosciuto';
+    const album = track.sections?.find((s) => s.metadata)?.metadata?.find((md) => md.title === 'Album')?.text;
+    const coverArt = track.images?.coverart;
+
+    const embed = new EmbedBuilder()
+      .setTitle('🎧 ZENO SHAZAM')
+      .setColor(0x5865f2)
+      .addFields(
+        { name: '🎵 Titolo', value: title },
+        { name: '🎤 Artista', value: artist },
+      );
+    if (album) embed.addFields({ name: '💿 Album', value: album });
+    if (coverArt) embed.setThumbnail(coverArt);
+
+    let row = null;
+    try {
+      const search = await yts(`${artist} ${title}`);
+      const v = search?.videos?.[0];
+      if (v) {
+        global.shazamCache.set(user.id, { title: `${artist} - ${title}`, url: v.url, duration: v.timestamp || '--:--' });
+        row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(cid('play', user.id)).setLabel('🎧 Riproduci').setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(cid('pl', user.id)).setLabel('➕ Aggiungi a .PL').setStyle(ButtonStyle.Success),
+        );
+      }
+    } catch (e) {
+      console.error('Errore ricerca YouTube per shazam:', e.message);
+    }
+
+    if (!slash) await ctx.react('🎵').catch(() => {});
+    return say({ embeds: [embed], components: row ? [row] : [] });
+  } catch (e) {
+    console.error('Errore shazam:', e.message);
+    if (!slash) await ctx.react('❌').catch(() => {});
+    return say('❌ Errore durante il riconoscimento della canzone.');
+  } finally {
+    rm(input);
+    rm(clip15);
+  }
+}
+
+execute.command = /^shazam$/i;
+execute.help = ['shazam'];
+execute.tags = ['fun'];
+execute.desc = 'Riconosce una canzone da un audio o video';
+execute.data = data;
+
+// ───────────── Pulsanti ─────────────
+export const prefix = 'shz';
+export async function onComponent(i) {
+  const [, action, uid] = i.customId.split(':');
+  if (i.user.id !== uid) {
+    return i.reply({ content: '⛔ Questi pulsanti non sono tuoi: usa `/shazam` per fare il tuo riconoscimento.', flags: MessageFlags.Ephemeral });
+  }
+
+  const track = global.shazamCache.get(uid);
+  if (!track?.url) {
+    return i.reply({ content: '❌ Traccia non trovata o sessione scaduta. Fai di nuovo `/shazam`.', flags: MessageFlags.Ephemeral });
+  }
+
+  if (action === 'pl') {
+    const m = track.url.match(/[?&]v=([\w-]{11})/);
+    if (!m || !YT_ID.test(m[1])) {
+      return i.reply({ content: '❌ Link non valido.', flags: MessageFlags.Ephemeral });
+    }
+    const db = readDb();
+    db[uid] = db[uid] || [];
+    if (db[uid].some((t) => t.url === track.url)) {
+      return i.reply({ content: '⚠️ Questo brano è già presente nella tua playlist (.PL)!', flags: MessageFlags.Ephemeral });
+    }
+    db[uid].push(track);
+    global.saveJsonAtomic(PLAYLIST_DB, db);
+    return i.reply({ content: `✅ Aggiunto alla tua playlist (.PL)!\n🎵 **${track.title}**`, flags: MessageFlags.Ephemeral });
+  }
+
+  if (action === 'play') {
+    await i.deferReply();
+    const m = track.url.match(/[?&]v=([\w-]{11})/);
+    if (!m) return i.editReply('❌ Link non valido.');
+    let file = null;
+    try {
+      file = await downloadAudio(m[1]);
+      if (fs.statSync(file).size > MAX_UPLOAD) {
+        return await i.editReply('❌ Il file supera il limite di upload di Discord (10 MB).');
+      }
+      await i.editReply({
+        content: `🎧 **${track.title}**`,
+        files: [new AttachmentBuilder(file, { name: 'shazam.mp3' })],
+      });
+    } catch (e) {
+      console.error('Errore download shazam:', e.stderr || e.message);
+      await i.editReply('❌ Errore durante il download.').catch(() => {});
+    } finally {
+      rm(file);
+    }
+  }
+}
+
+execute.onComponent = onComponent;
+export default execute;

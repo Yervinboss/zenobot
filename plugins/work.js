@@ -1,87 +1,125 @@
-const fs = require('fs');
-const path = require('path');
-const { pureId } = require('../lib/utils');
-const B = require('../lib/boost');
+import {
+  SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  StringSelectMenuBuilder, MessageFlags,
+} from 'discord.js';
+import * as eco from '../lib/eco.js';
+import * as rpg from '../lib/rpg.js';
 
-const dbPath = path.join(__dirname, '../database/rpg.json');
-const COOLDOWN_MS = 30 * 1000;
-const MILESTONE_LEVELS = [5, 15, 25, 35, 45, 55, 65, 75];
+export const data = new SlashCommandBuilder()
+  .setName('work')
+  .setDescription('Lavora per guadagnare soldi ed esperienza');
 
-function getDB() {
-    if (!fs.existsSync(dbPath)) {
-        fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-        fs.writeFileSync(dbPath, JSON.stringify({}));
-    }
-    try { return JSON.parse(fs.readFileSync(dbPath, 'utf-8')); } catch { return {}; }
-}
-function saveDB(data) { fs.writeFileSync(dbPath, JSON.stringify(data, null, 2)); }
-function getUser(db, id) {
-    if (!db[id]) db[id] = { level: 1, xp: 0, money: 1000, lastWork: 0 };
-    return db[id];
-}
-const xpToNextLevel = (lvl) => Math.floor(50 * Math.pow(lvl, 1.35));
-const randomBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
-const formatMoney = (n) => '€' + n.toLocaleString('it-IT');
-
-module.exports = {
-    commands: ['work'],
-    run: async (sock, m, args, cmd) => {
-        const jid = m.key.remoteJid;
-        const userId = pureId(m.key.participant || m.key.remoteJid);
-
-        const db = getDB();
-        const user = getUser(db, userId);
-        const now = Date.now();
-
-        const remaining = COOLDOWN_MS - (now - user.lastWork);
-        if (remaining > 0) {
-            const secs = Math.ceil(remaining / 1000);
-            return await sock.sendMessage(jid, {
-                text: `⏳ Devi aspettare ancora *${secs} secondi* prima di lavorare di nuovo!`
-            }, { quoted: m });
-        }
-
-        let earnedMoney = randomBetween(500, 2000);
-        let earnedXp = randomBetween(30, 70);
-        const fx = B.start(user, 'work').earn(earnedMoney, earnedXp);
-        earnedMoney = fx.money; earnedXp = fx.xp;
-
-        user.money += earnedMoney;
-        user.xp += earnedXp;
-        user.lastWork = now;
-
-        let txt = `💼 *Hai lavorato!*\n💰 +${formatMoney(earnedMoney)}\n✨ +${earnedXp} XP\n`;
-
-        let leveledUp = false;
-        let reachedMilestone = null;
-        let needed = xpToNextLevel(user.level);
-
-        while (user.xp >= needed) {
-            user.xp -= needed;
-            user.level += 1;
-            leveledUp = true;
-            if (MILESTONE_LEVELS.includes(user.level)) {
-                reachedMilestone = user.level;
-                const bonus = user.level * 100;
-                user.money += bonus;
-                txt += `\n🏆 *TRAGUARDO LIVELLO ${user.level}!* Bonus: ${formatMoney(bonus)}\n`;
-            }
-            needed = xpToNextLevel(user.level);
-        }
-
-        if (leveledUp && !reachedMilestone) txt += `\n🎉 *Livello ${user.level}!*\n`;
-
-        txt += `\n📊 Lvl: *${user.level}* | XP: ${user.xp}/${needed} | 💰 ${formatMoney(user.money)}`;
-
-        if (fx.notes.length) txt += '\n' + fx.notes.join('\n') + '\n';
-        saveDB(db);
-
-        return await sock.sendMessage(jid, {
-            text: txt,
-            buttons: [
-                { buttonId: 'work', buttonText: { displayText: '🔄 Lavora ancora' }, type: 1 }
-            ],
-            headerType: 1
-        }, { quoted: m });
-    }
+const bar = (xp, need) => {
+  const f = Math.max(0, Math.min(10, Math.round((xp / need) * 10)));
+  return '▰'.repeat(f) + '▱'.repeat(10 - f);
 };
+
+function choiceIntro(p) {
+  if (p.level === 1) return '👋 **Benvenuto nel mondo del lavoro!** Ecco tre lavoretti per iniziare, scegli da dove partire:';
+  if (p.level === 5) return '🎉 **Livello 5!** Ti hanno fatto due offerte, scegli quella che preferisci:';
+  return `🎉 **Livello ${p.level}!** Scegli il tuo nuovo lavoro:`;
+}
+
+function choiceEmbed(u) {
+  const jobs = u.pending.ids.map((x) => rpg.JOB_BY_ID[x]);
+  const lines = jobs.map((j) => {
+    const [lo, hi] = rpg.payRange(j.tier, u.level);
+    return `${j.emoji} **${j.name}** — ${eco.fmt(lo)} / ${eco.fmt(hi)} a turno`;
+  });
+  return new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle('💼 Scegli il tuo lavoro')
+    .setDescription(`${choiceIntro(u.pending)}\n\n${lines.join('\n')}`)
+    .setFooter({ text: 'Zeno Bot • Lavoro' });
+}
+
+function choiceComponents(u, id) {
+  const jobs = u.pending.ids.map((x) => rpg.JOB_BY_ID[x]);
+  if (jobs.length <= 5) {
+    return [new ActionRowBuilder().addComponents(jobs.map((j) =>
+      new ButtonBuilder().setCustomId(`work:pick:${id}:${j.id}`).setLabel(j.name).setEmoji(j.emoji).setStyle(ButtonStyle.Primary)))];
+  }
+  return [new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`work:sel:${id}`)
+      .setPlaceholder('Scegli il tuo lavoro…')
+      .addOptions(jobs.map((j) => {
+        const [lo, hi] = rpg.payRange(j.tier, u.level);
+        return { label: j.name, value: j.id, emoji: j.emoji, description: `${lo} - ${hi} a turno` };
+      })),
+  )];
+}
+
+function shiftEmbed(u, r, intro = '') {
+  const need = rpg.xpNeeded(u.level);
+  const lvl = u.level >= rpg.MAX_LEVEL
+    ? `⭐ Livello **${u.level} (MAX)**`
+    : `📈 Livello **${u.level}**  ${bar(u.xp, need)}  ${u.xp}/${need} XP`;
+  let desc = `${intro}${r.random ? '🎲 Lavoro di oggi: ' : ''}${r.job.emoji} **${r.job.name}**\n`
+    + `Oggi ${r.job.t}.\n\n`
+    + `${eco.CURRENCY} **+${eco.fmt(r.pay).replace(`${eco.CURRENCY} `, '')}**${r.tip ? ' — 🤑 **mancia enorme!**' : ''}\n`
+    + `✨ +${r.xp} XP\n${lvl}\n💰 Saldo: **${eco.fmt(r.total)}**`;
+  if (r.ups.length) desc += `\n\n🎉 **Sei salito al livello ${u.level}!**`;
+  return new EmbedBuilder()
+    .setColor(r.tip ? 0xf1c40f : 0x3498db)
+    .setTitle('💼 Turno completato')
+    .setDescription(desc)
+    .setFooter({ text: 'Puoi lavorare ogni 30 secondi' });
+}
+
+function shiftPayload(u, id, intro = '') {
+  const r = rpg.runShift(u, id);
+  const embeds = [shiftEmbed(u, r, intro)];
+  let components = [];
+  if (u.pending) { embeds.push(choiceEmbed(u)); components = choiceComponents(u, id); }
+  return { embeds, components };
+}
+
+async function work(ctx) {
+  const id = eco.isSlash(ctx) ? ctx.user.id : ctx.author.id;
+  const u = rpg.init(eco.user(id));
+
+  rpg.ensureChoice(u);
+  if (u.pending) {
+    eco.touch();
+    return ctx.reply({ embeds: [choiceEmbed(u)], components: choiceComponents(u, id) });
+  }
+
+  const left = eco.cooldownLeft(u.lastWork, rpg.WORK_COOLDOWN);
+  if (left) return eco.say(ctx, `😮‍💨 Sei stanco! Puoi lavorare di nuovo tra **${eco.fmtTime(left)}**.`, true);
+
+  return ctx.reply(shiftPayload(u, id));
+}
+
+work.command = /^work$/i;
+work.help = ['work'];
+work.tags = ['economy'];
+work.desc = 'Lavora per guadagnare soldi ed esperienza';
+
+export default work;
+
+// ───────────── Scelta del lavoro (bottoni / menu) ─────────────
+export const prefix = 'work';
+export async function onComponent(i) {
+  const parts = i.customId.split(':');
+  const ownerId = parts[2];
+  const hidden = (content) => i.reply({ content, flags: MessageFlags.Ephemeral });
+
+  if (i.user.id !== ownerId) return hidden('⛔ Questa scelta non è tua.');
+
+  const jobId = parts[1] === 'pick' ? parts[3] : i.values?.[0];
+  const u = rpg.init(eco.user(ownerId));
+  if (!u.pending || !u.pending.ids.includes(jobId)) return hidden('⌛ Questa scelta non è più valida. Usa `/work`.');
+
+  const job = rpg.JOB_BY_ID[jobId];
+  u.job = jobId;
+  u.pending = null;
+  eco.touch();
+
+  const intro = `✅ Ora sei **${job.emoji} ${job.name}**!\n\n`;
+  if (eco.cooldownLeft(u.lastWork, rpg.WORK_COOLDOWN) > 0) {
+    const e = new EmbedBuilder().setColor(0x2ecc71).setDescription(`${intro}Torna a lavorare con \`.work\` tra pochi secondi.`);
+    return i.update({ embeds: [e], components: [] });
+  }
+  return i.update(shiftPayload(u, ownerId, intro));
+}

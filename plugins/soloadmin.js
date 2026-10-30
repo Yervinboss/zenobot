@@ -1,37 +1,36 @@
-const { isOwner } = require('../lib/owner');
-const { isAdmin } = require('../lib/admin');
-const { isOn, setOn } = require('../lib/soloadmin');
+import { SlashCommandBuilder, PermissionFlagsBits } from 'discord.js';
+import {
+  solo, say, fail, box, can, isSlash, COLORS,
+} from '../lib/ui.js';
 
-module.exports = {
-    commands: ['soloadmin', 'solo'],
-    run: async (sock, m, args, cmd) => {
-        const jid = m.key.remoteJid;
-        const sender = m.key.participant || jid;
+export const data = new SlashCommandBuilder()
+  .setName('soloadmin')
+  .setDescription('Il bot risponde solo agli admin (on/off)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .addStringOption((o) => o.setName('stato').setDescription('on oppure off')
+    .addChoices({ name: 'on', value: 'on' }, { name: 'off', value: 'off' }));
 
-        if (!jid.endsWith('@g.us'))
-            return await sock.sendMessage(jid, { text: '❌ Solo nei gruppi!' }, { quoted: m });
+async function soloadmin(ctx, { text = '', command = 'soloadmin' } = {}) {
+  if (!ctx.guild) return fail(ctx, 'Funziona solo nei server.');
+  if (!(await can(ctx, PermissionFlagsBits.Administrator))) return fail(ctx, 'Solo gli **admin** possono usarlo.');
 
-        if (!isOwner(sender) && !(await isAdmin(sock, jid, sender)))
-            return await sock.sendMessage(jid, { text: '❌ Solo owner o admin.' }, { quoted: m });
+  const suffix = command.toLowerCase().replace('soloadmin', '');
+  const arg = suffix || (isSlash(ctx) ? ctx.options.getString('stato') : text.trim().toLowerCase());
 
-        // supporta sia ".soloadmin on" che ".solo admin on"
-        const a = [...args];
-        if (cmd === 'solo' && (a[0] || '').toLowerCase() === 'admin') a.shift();
-        const action = (a[0] || '').toLowerCase();
+  if (arg !== 'on' && arg !== 'off') {
+    const now = solo.has(ctx.guild.id);
+    return say(ctx, { embeds: [box(COLORS.info, '🛡️ Solo Admin', `Stato attuale: **${now ? 'ATTIVO 🔒' : 'SPENTO 🔓'}**\nUsa \`.soloadmin on\` oppure \`.soloadmin off\``)] });
+  }
+  solo.set(ctx.guild.id, arg === 'on');
+  return say(ctx, {
+    embeds: [box(arg === 'on' ? COLORS.warn : COLORS.ok,
+      arg === 'on' ? '🔒 Solo Admin ATTIVO' : '🔓 Solo Admin SPENTO',
+      arg === 'on' ? 'Da ora il bot risponde **solo agli admin** del server.' : 'Il bot torna a rispondere a **tutti**.')],
+  });
+}
 
-        if (action === 'on') {
-            setOn(jid, true);
-            await sock.sendMessage(jid, { react: { text: '🔒', key: m.key } });
-            return await sock.sendMessage(jid, { text: '🔒 *Solo admin ATTIVO*\nIl bot ora risponde solo agli admin.' }, { quoted: m });
-        }
-        if (action === 'off') {
-            setOn(jid, false);
-            await sock.sendMessage(jid, { react: { text: '🔓', key: m.key } });
-            return await sock.sendMessage(jid, { text: '🔓 *Solo admin DISATTIVATO*\nIl bot risponde a tutti.' }, { quoted: m });
-        }
-
-        return await sock.sendMessage(jid, {
-            text: `🔒 *SOLO ADMIN*\n\nStato: ${isOn(jid) ? 'ATTIVO' : 'Disattivato'}\n\n\`.soloadmin on\`\n\`.soloadmin off\``
-        }, { quoted: m });
-    }
-};
+soloadmin.command = /^soloadmin(on|off)?$/i;
+soloadmin.help = ['soloadmin'];
+soloadmin.tags = ['admin'];
+soloadmin.desc = 'Il bot risponde solo agli admin';
+export default soloadmin;

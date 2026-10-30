@@ -1,121 +1,137 @@
-const zx = require('../lib/zx')
-const QR = (() => { try { return require('qrcode') } catch { return null } })()
+import {
+  SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType,
+} from 'discord.js';
+import {
+  COLORS, box, say, fail, actor, isSlash, pickUser, parseDuration, fmtDur, store,
+} from '../lib/ui.js';
 
-const WX = { 0: ['☀️', 'Sereno'], 1: ['🌤️', 'Quasi sereno'], 2: ['⛅', 'Poco nuvoloso'], 3: ['☁️', 'Coperto'], 45: ['🌫️', 'Nebbia'], 48: ['🌫️', 'Nebbia gelata'],
-    51: ['🌦️', 'Pioggerella'], 53: ['🌦️', 'Pioggerella'], 55: ['🌧️', 'Pioggerella fitta'], 61: ['🌧️', 'Pioggia debole'], 63: ['🌧️', 'Pioggia'], 65: ['🌧️', 'Pioggia forte'],
-    71: ['🌨️', 'Neve debole'], 73: ['🌨️', 'Neve'], 75: ['❄️', 'Neve forte'], 80: ['🌦️', 'Rovesci'], 81: ['🌧️', 'Rovesci'], 82: ['⛈️', 'Rovesci violenti'],
-    95: ['⛈️', 'Temporale'], 96: ['⛈️', 'Temporale con grandine'], 99: ['⛈️', 'Temporale con grandine'] }
-const wx = (c) => WX[c] || ['🌡️', 'Variabile']
+const NUM = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
+const remDb = store('reminders.json');
+const ts = (ms) => Math.floor(ms / 1000);
 
-const getJson = async (url) => {
-    const r = await fetch(url, { signal: AbortSignal.timeout(12000) })
-    if (!r.ok) throw new Error('HTTP ' + r.status)
-    return r.json()
+export const datas = [
+  new SlashCommandBuilder().setName('avatar').setDescription('Mostra l\'avatar in grande')
+    .addUserOption((o) => o.setName('utente').setDescription('Di chi?')),
+  new SlashCommandBuilder().setName('userinfo').setDescription('Scheda di un utente')
+    .addUserOption((o) => o.setName('utente').setDescription('Di chi?')),
+  new SlashCommandBuilder().setName('serverinfo').setDescription('Scheda del server'),
+  new SlashCommandBuilder().setName('sondaggio').setDescription('Crea un sondaggio con reazioni')
+    .addStringOption((o) => o.setName('domanda').setDescription('Domanda | opzione 1 | opzione 2 … (senza opzioni: ✅/❌)').setRequired(true)),
+  new SlashCommandBuilder().setName('ricorda').setDescription('Ti ricordo qualcosa tra un po\'')
+    .addStringOption((o) => o.setName('quando').setDescription('Es: 10m, 2h, 1d').setRequired(true))
+    .addStringOption((o) => o.setName('testo').setDescription('Cosa devo ricordarti?').setRequired(true)),
+];
+
+// Controllo promemoria ogni 15s (ripartito pulito a ogni reload)
+clearInterval(global.zenoRemTimer);
+global.zenoRemTimer = setInterval(async () => {
+  const client = global.zenoConn;
+  if (!client?.isReady()) return;
+  const list = remDb.read().list || [];
+  const now = Date.now();
+  const due = list.filter((r) => r.at <= now);
+  if (!due.length) return;
+  remDb.write({ list: list.filter((r) => r.at > now) });
+  for (const r of due) {
+    const msg = { content: `<@${r.user}>`, embeds: [box(COLORS.warn, '⏰ Promemoria!', r.text)] };
+    const dm = async () => (await client.users.fetch(r.user).catch(() => null))?.send(msg).catch(() => {});
+    const ch = await client.channels.fetch(r.channel).catch(() => null);
+    if (ch?.send) await ch.send(msg).catch(dm); else await dm();
+  }
+}, 15_000);
+global.zenoRemTimer.unref?.();
+
+async function avatar(ctx, text) {
+  const t = (await pickUser(ctx, text)) || actor(ctx);
+  const url = (ext) => t.displayAvatarURL({ extension: ext, size: 1024 });
+  const row = new ActionRowBuilder().addComponents(
+    ...['png', 'webp', 'jpg'].map((x) => new ButtonBuilder().setLabel(x.toUpperCase()).setStyle(ButtonStyle.Link).setURL(url(x))),
+  );
+  return say(ctx, { embeds: [box(COLORS.main, `🖼️ Avatar di ${t.displayName}`).setImage(url('png'))], components: [row] });
 }
 
-function calc(expr) {
-    let e = String(expr).toLowerCase().replace(/,/g, '.').replace(/\^/g, '**').replace(/×|x(?=\s*\d)/g, '*').replace(/÷/g, '/')
-    e = e.replace(/\b(sqrt|sin|cos|tan|log|abs|round|floor|ceil)\b/g, 'Math.$1').replace(/\bpi\b/g, 'Math.PI')
-    const rest = e.replace(/Math\.(sqrt|sin|cos|tan|log|abs|round|floor|ceil|PI)/g, '')
-    if (!rest.trim() || !/^[0-9+\-*/().%\s]+$/.test(rest) || e.length > 120) throw new Error('bad')
-    const v = Function('"use strict";return (' + e + ')')()
-    if (typeof v !== 'number' || !isFinite(v)) throw new Error('bad')
-    return Math.round(v * 1e10) / 1e10
+async function userinfo(ctx, text) {
+  const base = (await pickUser(ctx, text)) || actor(ctx);
+  const user = await base.fetch(true).catch(() => base);
+  const member = ctx.guild ? await ctx.guild.members.fetch(user.id).catch(() => null) : null;
+  const e = box(user.accentColor || COLORS.main, `👤 ${user.displayName}`)
+    .setThumbnail(user.displayAvatarURL({ size: 256 }))
+    .addFields(
+      { name: '🆔 ID', value: `\`${user.id}\``, inline: true },
+      { name: '🤖 Bot', value: user.bot ? 'Sì' : 'No', inline: true },
+      { name: '📅 Account creato', value: `<t:${ts(user.createdTimestamp)}:D> (<t:${ts(user.createdTimestamp)}:R>)` },
+    );
+  if (member) {
+    const roles = member.roles.cache.filter((r) => r.id !== ctx.guild.id).sort((a, b) => b.position - a.position).first(8).map((r) => r.toString()).join(' ');
+    e.addFields({ name: '📥 Entrato nel server', value: `<t:${ts(member.joinedTimestamp)}:R>`, inline: true });
+    if (member.nickname) e.addFields({ name: '🏷️ Nickname', value: member.nickname, inline: true });
+    if (roles) e.addFields({ name: '🎭 Ruoli', value: roles });
+  }
+  const banner = user.bannerURL({ size: 1024 });
+  if (banner) e.setImage(banner);
+  return say(ctx, { embeds: [e] });
 }
 
-module.exports = {
-    commands: ['meteo', 'wiki', 'traduci', 'calc', 'calcola', 'qrcode', 'creaqr', 'password', 'pass', 'scegli', 'dado', 'moneta'],
-    name: 'utility',
-    category: 'funzioni',
-    cooldown: 3000,
-    description: 'Meteo, Wikipedia, traduttore, calcolatrice, QR, password, scegli, dado, moneta',
-
-    async run(sock, m, args, cmd, ctx) {
-        const z = zx(sock, m, ctx), jid = z.jid
-        const text = (ctx && ctx.argsText != null ? ctx.argsText : args.join(' ')).trim()
-        const quotedText = () => {
-            const q = ctx && ctx.quoted
-            const msg = q && (q.message || q.msg || q)
-            return msg && (msg.conversation || (msg.extendedTextMessage && msg.extendedTextMessage.text) || '') || ''
-        }
-        try {
-            if (cmd === 'meteo') {
-                if (!text) return z.err('Uso: *.meteo <città>*  es. *.meteo Milano*')
-                const geo = await getJson(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(text)}&count=1&language=it`)
-                const c = geo.results && geo.results[0]
-                if (!c) return z.err(`Non trovo la città *${text}*.`)
-                const f = await getJson(`https://api.open-meteo.com/v1/forecast?latitude=${c.latitude}&longitude=${c.longitude}&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code&timezone=auto&forecast_days=3`)
-                const n = f.current, [ic, desc] = wx(n.weather_code)
-                const days = ['Oggi', 'Domani', 'Dopodomani']
-                const next = f.daily.time.map((_, i) => {
-                    const [e] = wx(f.daily.weather_code[i])
-                    return { raw: `${e} *${days[i]}*: ${Math.round(f.daily.temperature_2m_min[i])}°/${Math.round(f.daily.temperature_2m_max[i])}° • ☔ ${f.daily.precipitation_probability_max[i] ?? 0}%` }
-                })
-                return z.reply(z.box(`METEO • ${c.name}${c.country ? ', ' + c.country : ''}`, [
-                    { raw: `${ic} *${desc}*  ${Math.round(n.temperature_2m)}°C (percepiti ${Math.round(n.apparent_temperature)}°)` },
-                    `Umidità: *${n.relative_humidity_2m}%* • Vento: *${Math.round(n.wind_speed_10m)} km/h*`, '---', ...next
-                ]))
-            }
-
-            if (cmd === 'wiki') {
-                if (!text) return z.err('Uso: *.wiki <argomento>*')
-                const os = await getJson(`https://it.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(text)}&limit=1&format=json`)
-                const title = os[1] && os[1][0]
-                if (!title) return z.err(`Nessun risultato per *${text}*.`)
-                const s = await getJson(`https://it.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`)
-                const caption = z.box(`📚 ${s.title}`, [{ raw: String(s.extract || 'Nessun riassunto disponibile.').slice(0, 900) }, '---', { raw: (s.content_urls && s.content_urls.desktop && s.content_urls.desktop.page) || '' }])
-                if (s.thumbnail && s.thumbnail.source) { try { return await sock.sendMessage(jid, { image: { url: s.thumbnail.source }, caption }, { quoted: m }) } catch {} }
-                return z.reply(caption)
-            }
-
-            if (cmd === 'traduci') {
-                let lang = (args[0] || '').toLowerCase(), body = args.slice(1).join(' ')
-                if (!/^[a-z]{2}$/.test(lang)) { body = text; lang = 'en' }
-                if (!body) body = quotedText()
-                if (!body) return z.err('Uso: *.traduci <lingua> <testo>*  es. *.traduci en ciao come stai*\nOppure rispondi a un messaggio con *.traduci en*')
-                const from = lang === 'it' ? 'en' : 'it'
-                const r = await getJson(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(body.slice(0, 450))}&langpair=${from}|${lang}`)
-                const out = r.responseData && r.responseData.translatedText
-                if (!out) return z.err('Traduzione non disponibile.')
-                return z.reply(z.box(`TRADUZIONE ${from.toUpperCase()} → ${lang.toUpperCase()}`, [{ raw: out }]))
-            }
-
-            if (cmd === 'calc' || cmd === 'calcola') {
-                if (!text) return z.err('Uso: *.calc 12*(3+4)*  (anche sqrt, pi, ^, %)')
-                let v; try { v = calc(text) } catch { return z.err('Espressione non valida.') }
-                return z.reply(z.box('CALCOLATRICE', [{ raw: `${text}\n= *${v}*` }]))
-            }
-
-            if (cmd === 'qrcode' || cmd === 'creaqr') {
-                if (!QR) return z.err('Manca il modulo *qrcode* (npm i qrcode).')
-                if (!text) return z.err('Uso: *.qrcode <testo o link>*')
-                const buf = await QR.toBuffer(text.slice(0, 500), { width: 512, margin: 2 })
-                return sock.sendMessage(jid, { image: buf, caption: '🔳 Ecco il tuo QR code' }, { quoted: m })
-            }
-
-            if (cmd === 'password' || cmd === 'pass') {
-                const len = Math.min(40, Math.max(8, parseInt(args[0]) || 16))
-                const set = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*?'
-                const pw = Array.from(require('crypto').randomBytes(len), b => set[b % set.length]).join('')
-                // la password va in privato, non nel gruppo
-                const priv = (m.key.participant || m.key.remoteJid)
-                await sock.sendMessage(priv, { text: z.box('PASSWORD SICURA', [{ raw: '```' + pw + '```\nLunghezza: ' + len }]) })
-                if (jid.endsWith('@g.us')) return z.ok('Te l\'ho mandata in privato 🔐')
-                return
-            }
-
-            if (cmd === 'scegli') {
-                const opts = text.split(/\s*[|,]\s*|\s+o\s+/i).map(s => s.trim()).filter(Boolean)
-                if (opts.length < 2) return z.err('Uso: *.scegli pizza | sushi | kebab*')
-                return z.reply(z.box('🎯 HO SCELTO', [{ raw: `*${opts[Math.floor(Math.random() * opts.length)]}*` }]))
-            }
-            if (cmd === 'dado') {
-                const f = Math.min(1000, Math.max(2, parseInt(args[0]) || 6))
-                return z.reply(z.box('🎲 DADO', [{ raw: `d${f} → *${1 + Math.floor(Math.random() * f)}*` }]))
-            }
-            if (cmd === 'moneta') return z.reply(z.box('🪙 MONETA', [{ raw: `*${Math.random() < 0.5 ? 'TESTA' : 'CROCE'}*` }]))
-        } catch (e) {
-            return z.err('Servizio non raggiungibile in questo momento, riprova tra poco.')
-        }
-    }
+async function serverinfo(ctx) {
+  const g = ctx.guild;
+  if (!g) return fail(ctx, 'Funziona solo nei server.');
+  const ch = g.channels.cache;
+  const e = box(COLORS.info, `🏰 ${g.name}`)
+    .setThumbnail(g.iconURL({ size: 256 }))
+    .addFields(
+      { name: '👑 Owner', value: `<@${g.ownerId}>`, inline: true },
+      { name: '👥 Membri', value: `${g.memberCount}`, inline: true },
+      { name: '📅 Creato', value: `<t:${ts(g.createdTimestamp)}:R>`, inline: true },
+      { name: '💬 Canali', value: `${ch.filter((c) => c.type === ChannelType.GuildText).size} testo • ${ch.filter((c) => c.type === ChannelType.GuildVoice).size} vocali`, inline: true },
+      { name: '🎭 Ruoli', value: `${g.roles.cache.size}`, inline: true },
+      { name: '💎 Boost', value: `Lv.${g.premiumTier} • ${g.premiumSubscriptionCount || 0}`, inline: true },
+    );
+  const banner = g.bannerURL({ size: 1024 });
+  if (banner) e.setImage(banner);
+  return say(ctx, { embeds: [e] });
 }
+
+async function sondaggio(ctx, text) {
+  const raw = isSlash(ctx) ? ctx.options.getString('domanda') : text;
+  const parts = raw.split('|').map((s) => s.trim()).filter(Boolean);
+  const q = parts.shift();
+  if (!q) return fail(ctx, 'Es: `.sondaggio Pizza o sushi? | Pizza | Sushi`');
+  const opts = parts.slice(0, 9);
+  const multi = opts.length >= 2;
+  const emojis = multi ? NUM.slice(0, opts.length) : ['✅', '❌'];
+  const u = actor(ctx);
+  const e = box(COLORS.info, `📊 ${q}`, multi ? opts.map((o, i) => `${NUM[i]} ${o}`).join('\n') : 'Vota con ✅ o ❌')
+    .setAuthor({ name: `Sondaggio di ${u.displayName}`, iconURL: u.displayAvatarURL() });
+  const msg = await say(ctx, { embeds: [e] });
+  for (const em of emojis) await msg?.react(em).catch(() => {});
+  return msg;
+}
+
+async function ricorda(ctx, text) {
+  const raw = isSlash(ctx) ? `${ctx.options.getString('quando')} ${ctx.options.getString('testo')}` : text.trim();
+  const m = raw.match(/^(\d+\s*[smhd]?)\s+(.+)$/is);
+  if (!m) return fail(ctx, 'Es: `.ricorda 10m comprare il pane`');
+  const ms = parseDuration(m[1]);
+  if (!ms || ms < 5000 || ms > 30 * 864e5) return fail(ctx, 'Scegli un tempo tra **5 secondi** e **30 giorni**.');
+  const d = remDb.read();
+  const list = d.list || [];
+  const user = actor(ctx).id;
+  if (list.filter((r) => r.user === user).length >= 20) return fail(ctx, 'Hai già 20 promemoria attivi!');
+  list.push({ user, channel: ctx.channel?.id, text: m[2].slice(0, 500), at: Date.now() + ms });
+  remDb.write({ list });
+  return say(ctx, { embeds: [box(COLORS.ok, '⏰ Promemoria impostato', `Tra **${fmtDur(ms)}** (<t:${ts(Date.now() + ms)}:R>) ti ricordo:\n> ${m[2].slice(0, 200)}`)] });
+}
+
+const FN = {
+  avatar, pfp: avatar, userinfo, serverinfo, sondaggio, poll: sondaggio, ricorda, remind: ricorda,
+};
+
+async function utility(ctx, { text = '', command = '' } = {}) {
+  return FN[command.toLowerCase()]?.(ctx, text);
+}
+
+utility.command = /^(avatar|pfp|userinfo|serverinfo|sondaggio|poll|ricorda|remind)$/i;
+utility.help = ['avatar', 'userinfo', 'serverinfo', 'sondaggio', 'ricorda'];
+utility.tags = ['utility'];
+utility.desc = 'Strumenti utili';
+export default utility;
