@@ -1,169 +1,230 @@
-import yts from 'yt-search';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-import {
-  SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder,
-  ButtonStyle, AttachmentBuilder, MessageFlags,
-} from 'discord.js';
+const fs = require('fs');
+const path = require('path');
+const { exec } = require('child_process');
+const yts = require('yt-search');
 
-// ───────────── TRACKER PROFILO ─────────────
-function trackPlay(userId, title, artist = 'Sconosciuto') {
-  try {
-    const PROFILES_DB = path.resolve('profiles_db.json');
-    let db = fs.existsSync(PROFILES_DB) ? JSON.parse(fs.readFileSync(PROFILES_DB, 'utf8')) : {};
-    if (!db[userId]) db[userId] = { stars: 0, topSongs: [] };
+const dbPath = path.join(__dirname, '../zenomusic_db.json');
+const playlistDbPath = path.join(__dirname, '../playlist_db.json');
 
-    let cleanTitle = (title || 'Sconosciuto').trim();
-    let cleanArtist = (artist || 'Sconosciuto').trim();
-
-    if ((cleanArtist === 'Sconosciuto' || !cleanArtist) && cleanTitle.includes(' - ')) {
-      const parts = cleanTitle.split(' - ');
-      cleanArtist = parts[0].trim();
-      cleanTitle = parts.slice(1).join(' - ').trim();
-    }
-
-    const existing = db[userId].topSongs.find(s => s.title === cleanTitle && s.artist === cleanArtist);
-    if (existing) existing.count = (existing.count || 0) + 1;
-    else db[userId].topSongs.push({ title: cleanTitle, artist: cleanArtist, count: 1 });
-
-    if (typeof global.saveJsonAtomic === 'function') global.saveJsonAtomic(PROFILES_DB, db);
-    else fs.writeFileSync(PROFILES_DB, JSON.stringify(db, null, 2), 'utf8');
-  } catch (e) {
-    console.error('Errore tracking play:', e.message);
-  }
-}
-// ───────────── FINE TRACKER ─────────────
-
-const run = promisify(execFile);
-const PLAYLIST_DB = path.resolve('playlist_db.json');
-const MAX_UPLOAD = 10 * 1024 * 1024;
-const YT_ID = /^[\w-]{11}$/;
-
-const readDb = (p) => {
-  if (!fs.existsSync(p)) return {};
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch { return {}; }
+const readDb = (p = dbPath) => {
+    if (!fs.existsSync(p)) return {};
+    try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (e) { return {}; }
+};
+const writeDb = (data, p = dbPath) => {
+    fs.writeFileSync(p, JSON.stringify(data, null, 2), 'utf8');
 };
 
-const safeName = (t) => t.replace(/[^\w\s-]/g, '').trim().slice(0, 60) || 'zeno';
+module.exports = {
+    commands: ['song', 'play', 'sendnormal', 'sendvideo', 'addplaylist'],
+    run: async (sock, m) => {
+        let chatId = m.key.remoteJid;
+        let sender = m.key.participant || m.participant || chatId;
 
-export const data = new SlashCommandBuilder()
-  .setName('song')
-  .setDescription('Cerca una canzone')
-  .addStringOption((o) =>
-    o.setName('query').setDescription('Titolo e artista').setRequired(true));
+        let text = m.message?.conversation || m.message?.extendedTextMessage?.text || '';
+        
+        let buttonId = 
+            m.message?.buttonsResponseMessage?.selectedButtonId ||
+            m.message?.templateButtonReplyMessage?.selectedId ||
+            m.msg?.selectedButtonId || '';
 
-async function song(ctx, { text } = {}) {
-  const isSlash = Boolean(ctx.isChatInputCommand?.());
-  const query = (isSlash ? ctx.options.getString('query') : text || '').trim();
+        let action = '';
+        let query = '';
 
-  if (!query) return ctx.reply('❌ Inserisci il titolo della canzone! (Esempio: `.song bistia 18K`)');
+        if (buttonId) {
+            action = buttonId.trim().toLowerCase();
+        } else if (text.startsWith('.')) {
+            let parts = text.slice(1).trim().split(/ +/);
+            action = parts[0].toLowerCase();
+            query = parts.slice(1).join(' ');
+        } else {
+            query = text.trim();
+            if (query === 'sendnormal' || query === 'sendvideo' || query === 'addplaylist') {
+                action = query;
+                query = '';
+            } else {
+                action = 'song';
+            }
+        }
 
-  if (isSlash) await ctx.deferReply();
-  else ctx.channel.sendTyping().catch(() => {});
-  const send = (payload) => (isSlash ? ctx.editReply(payload) : ctx.reply(payload));
+        console.log(`[DEBUG SONG FIXED] Azione: "${action}" | Query: "${query}" | ButtonId: "${buttonId}"`);
 
-  const { videos } = await yts(query);
-  const vid = videos?.[0];
-  if (!vid) return send(`❌ Nessun risultato trovato per: "${query}"`);
+        // 1. COMANDO DI RICERCA (.song o .play)
+        if (action === 'song' || action === 'play') {
+            if (!query) {
+                return sock.sendMessage(chatId, { text: '❌ Inserisci il titolo della canzone! (Esempio: `.song bistia 18K`)' }, { quoted: m });
+            }
+            await sock.sendMessage(chatId, { react: { text: '⏳', key: m.key } });
 
-  const embed = new EmbedBuilder()
-    .setTitle(vid.title)
-    .setURL(vid.url)
-    .setColor(0x5865f2)
-    .setImage(vid.thumbnail || vid.image)
-    .addFields(
-      { name: '⏱️ Durata', value: vid.timestamp || 'N/D', inline: true },
-      { name: '👁️ Visualizzazioni', value: (vid.views ?? 0).toLocaleString('it-IT'), inline: true },
-      { name: '📺 Canale', value: vid.author?.name || 'N/D', inline: true },
-    )
-    .setFooter({ text: '⚡ Zeno Bot - Music Player' });
+            let search = await yts(query);
+            if (!search || search.videos.length === 0) {
+                return sock.sendMessage(chatId, { text: `❌ Nessun risultato trovato per: "${query}"` }, { quoted: m });
+            }
 
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`song:audio:${vid.videoId}`).setLabel('🎵 Audio').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId(`song:video:${vid.videoId}`).setLabel('🎬 Video MP4').setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`song:pl:${vid.videoId}`).setLabel('➕ Aggiungi a .PL').setStyle(ButtonStyle.Success),
-  );
+            let vid = search.videos[0];
+            let txt = `🎶 *ZENO MUSIC* 🎶\n\n` +
+                      `📌 *Titolo:* ${vid.title}\n` +
+                      `⏱ *Durata:* ${vid.timestamp}\n` +
+                      `👁️ *Visualizzazioni:* ${vid.views}\n`;
 
-  return send({ embeds: [embed], components: [row] });
-}
+            let db = readDb(dbPath);
+            // MODIFICATO: usa 'sender' invece di 'chatId' per non sovrascrivere le canzoni negli altri
+            db[sender] = { url: vid.url, title: vid.title, duration: vid.timestamp };
+            writeDb(db, dbPath);
 
-song.command = /^(song|play)$/i;
-song.help = ['song'];
-song.tags = ['downloader'];
-song.desc = 'Cerca una canzone e scaricala';
+            let thumbPath = path.join(__dirname, `thumb_${Date.now()}.jpg`);
+            try {
+                let response = await fetch(vid.thumbnail);
+                let buffer = Buffer.from(await response.arrayBuffer());
+                fs.writeFileSync(thumbPath, buffer);
 
-export default song;
+                let buttons = [
+                    { buttonId: 'sendnormal', buttonText: { displayText: '🎵 Audio Normale' }, type: 1 },
+                    { buttonId: 'sendvideo', buttonText: { displayText: '🎬 Video MP4' }, type: 1 },
+                    { buttonId: 'addplaylist', buttonText: { displayText: '➕ Aggiungi a .PL' }, type: 1 }
+                ];
 
-async function download(id, kind) {
-  const base = path.join(os.tmpdir(), `zeno_${id}_${Date.now()}`);
-  const common = [
-    '--no-playlist', '-q', '--no-warnings', '--no-progress',
-    '--extractor-args', 'youtube:player-client=android,web',
-    '-o', `${base}.%(ext)s`,
-  ];
-  const url = `https://www.youtube.com/watch?v=${id}`;
-  const args = kind === 'audio'
-    ? ['-x', '--audio-format', 'mp3', '--audio-quality', '96K', ...common, url]
-    : ['-f', 'best[ext=mp4][height<=480]/best[ext=mp4]/best', ...common, url];
+                let buttonMessage = {
+                    image: fs.readFileSync(thumbPath),
+                    caption: txt,
+                    footer: '⚡ Zeno Bot - Music Player',
+                    buttons: buttons,
+                    headerType: 4
+                };
 
-  await run('yt-dlp', args, { timeout: 5 * 60 * 1000, maxBuffer: 10 * 1024 * 1024 });
+                let sentMsg = await sock.sendMessage(chatId, buttonMessage, { quoted: m });
+                if (fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath);
+                return sentMsg;
 
-  const found = fs.readdirSync(os.tmpdir()).find((f) => f.startsWith(path.basename(base)));
-  return found ? path.join(os.tmpdir(), found) : null;
-}
+            } catch (e) {
+                console.error(e);
+                if (fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath);
+                return;
+            }
+        }
 
-export const prefix = 'song';
-export async function onComponent(i) {
-  const [, action, id] = i.customId.split(':');
-  if (!YT_ID.test(id || '')) {
-    return i.reply({ content: '❌ Pulsante non valido.', flags: MessageFlags.Ephemeral });
-  }
+        await sock.sendMessage(chatId, { react: { text: '🔥', key: m.key } });
 
-  const embed = i.message.embeds[0];
-  const title = embed?.title || 'Brano';
+        // 2. DOWNLOAD AUDIO COME VOCALE VERDE (PTT)
+        if (action === 'sendnormal' || query === 'sendnormal') {
+            let db = readDb(dbPath);
+            // MODIFICATO: usa 'sender'
+            let trackData = db[sender];
+            let videourl = typeof trackData === 'object' ? trackData.url : trackData;
 
-  if (action === 'pl') {
-    const url = `https://www.youtube.com/watch?v=${id}`;
-    const duration = embed?.fields?.find((f) => f.name.includes('Durata'))?.value || '';
+            if (!videourl) return await sock.sendMessage(chatId, { text: '❌ Errore: Cerca prima il brano con `.song`.' }, { quoted: m });
 
-    const db = readDb(PLAYLIST_DB);
-    if (!db[i.user.id]) db[i.user.id] = [];
+            await sock.sendMessage(chatId, { react: { text: '🎧', key: m.key } });
 
-    if (db[i.user.id].some((t) => t.url === url)) {
-      return i.reply({ content: '⚠️ Questo brano è già presente nella tua playlist (.PL)!', flags: MessageFlags.Ephemeral });
+            let inputMp3 = path.join(__dirname, `_temp_${Date.now()}.mp3`);
+            let outputOgg = path.join(__dirname, `vocale_${Date.now()}.ogg`);
+
+            let yt_command = `yt-dlp -x --audio-format mp3 --audio-quality 192k --extractor-args youtube:player-client=android,web -o "${inputMp3}" "${videourl}"`;
+            
+            exec(yt_command, async (error, stdout, stderr) => {
+                if (error) {
+                    console.error('Errore yt-dlp:', stderr);
+                    return await sock.sendMessage(chatId, { text: '❌ Errore durante il download.' }, { quoted: m });
+                }
+
+                let ffmpeg_command = `ffmpeg -i "${inputMp3}" -c:a libopus -b:a 128k -ar 48000 -ac 1 -f ogg "${outputOgg}"`;
+                
+                exec(ffmpeg_command, async (err2, stdout2, stderr2) => {
+                    if (fs.existsSync(inputMp3)) fs.unlinkSync(inputMp3);
+
+                    if (err2) {
+                        console.error('Errore conversione ffmpeg:', stderr2);
+                        return await sock.sendMessage(chatId, { text: '❌ Errore nella conversione del vocale.' }, { quoted: m });
+                    }
+
+                    if (fs.existsSync(outputOgg)) {
+                        try {
+                            let audioBuffer = fs.readFileSync(outputOgg);
+                            await sock.sendMessage(chatId, {
+                                audio: audioBuffer,
+                                mimetype: 'audio/ogg; codecs=opus',
+                                ptt: true
+                            }, { quoted: m });
+
+                            await sock.sendMessage(chatId, { react: { text: '✅', key: m.key } });
+                        } catch (err) {
+                            console.error('Errore durante invio audio:', err);
+                        } finally {
+                            setTimeout(() => {
+                                if (fs.existsSync(outputOgg)) fs.unlinkSync(outputOgg);
+                            }, 5000);
+                        }
+                    } else {
+                        return await sock.sendMessage(chatId, { text: '❌ File vocale non generato.' }, { quoted: m });
+                    }
+                });
+            });
+            return;
+        }
+
+        // 3. AGGIUNGI ALLA PLAYLIST (.PL)
+        if (action === 'addplaylist' || query === 'addplaylist') {
+            let db = readDb(dbPath);
+            // MODIFICATO: usa 'sender'
+            let track = db[sender];
+            if (!track || !track.url) {
+                return await sock.sendMessage(chatId, { text: '❌ Errore: Nessun brano recente da aggiungere. Cerca prima con `.song`.' }, { quoted: m });
+            }
+
+            let plDb = readDb(playlistDbPath);
+            if (!plDb[sender]) plDb[sender] = [];
+
+            let exists = plDb[sender].some(t => t.url === track.url);
+            if (exists) {
+                return await sock.sendMessage(chatId, { text: `⚠️ Questo brano è *già presente* nella tua playlist (.PL)!` }, { quoted: m });
+            }
+
+            plDb[sender].push(track);
+            writeDb(plDb, playlistDbPath);
+
+            return await sock.sendMessage(chatId, { text: `✅ Brano aggiunto con successo alla tua playlist (.PL)!\n📌 *${track.title}*` }, { quoted: m });
+        }
+
+        // 4. DOWNLOAD VIDEO MP4
+        if (action === 'sendvideo' || query === 'sendvideo') {
+            let db = readDb(dbPath);
+            // MODIFICATO: usa 'sender'
+            let trackData = db[sender];
+            let videourl = typeof trackData === 'object' ? trackData.url : trackData;
+
+            if (!videourl) return await sock.sendMessage(chatId, { text: '❌ Errore: Cerca prima il brano con `.song`.' }, { quoted: m });
+
+            await sock.sendMessage(chatId, { react: { text: '⏳', key: m.key } });
+
+            let outputPath = path.join(__dirname, `video_${Date.now()}.mp4`);
+            let ytdlpVideoCommand = `yt-dlp -f "best[ext=mp4]/best" --extractor-args youtube:player-client=android,web -o "${outputPath}" "${videourl}"`;
+
+            exec(ytdlpVideoCommand, async (error, stdout, stderr) => {
+                if (error) {
+                    console.error('Errore yt-dlp video:', stderr);
+                    return await sock.sendMessage(chatId, { text: '❌ Errore durante il download del video.' }, { quoted: m });
+                }
+
+                if (fs.existsSync(outputPath)) {
+                    try {
+                        await sock.sendMessage(chatId, {
+                            video: fs.readFileSync(outputPath),
+                            caption: '🎬 Ecco il tuo video!',
+                            mimetype: 'video/mp4'
+                        }, { quoted: m });
+
+                        await sock.sendMessage(chatId, { react: { text: '✅', key: m.key } });
+                    } catch (err) {
+                        console.error(err);
+                    } finally {
+                        setTimeout(() => {
+                            if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+                        }, 5000);
+                    }
+                } else {
+                    return await sock.sendMessage(chatId, { text: '❌ Il file video non è stato generato.' }, { quoted: m });
+                }
+            });
+            return;
+        }
     }
-    db[i.user.id].push({ url, title, duration });
-    global.saveJsonAtomic(PLAYLIST_DB, db);
-
-    return i.reply({ content: `✅ Aggiunto alla tua playlist (.PL)!\n📌 **${title}**`, flags: MessageFlags.Ephemeral });
-  }
-
-  if (action === 'audio' || action === 'video') {
-    await i.deferReply();
-    let file = null;
-    try {
-      file = await download(id, action);
-      if (!file) throw new Error('file non generato');
-      console.log('[song] file pronto, invio a Discord...');
-
-      if (fs.statSync(file).size > MAX_UPLOAD) {
-        return i.editReply('❌ Il file supera il limite di upload di Discord (10 MB).');
-      }
-
-      if (action === 'audio') trackPlay(i.user.id, title);
-
-      await i.editReply({
-        content: `${action === 'audio' ? '🎵' : '🎬'} **${title}**`,
-        files: [new AttachmentBuilder(file, { name: `${safeName(title)}${path.extname(file)}` })],
-      });
-    } catch (e) {
-      console.error(`Errore download ${action}:`, e.stderr || e.message);
-      await i.editReply('❌ Errore durante il download.').catch(() => {});
-    } finally {
-      if (file && fs.existsSync(file)) fs.unlinkSync(file);
-    }
-  }
-}
+};

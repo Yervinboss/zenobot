@@ -1,88 +1,95 @@
-import os from 'os';
-import { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } from 'discord.js';
+const os = require('os');
+const fs = require('fs');
+const path = require('path');
+const { sendButtons } = require('../lib/utils');
+const { isOwner } = require('../lib/owner');
 
-const toMathematicalAlphanumericSymbols = (number) => {
-  const map = {
-    '0': '𝟎', '1': '𝟏', '2': '𝟐', '3': '𝟑', '4': '𝟒',
-    '5': '𝟓', '6': '𝟔', '7': '𝟕', '8': '𝟖', '9': '𝟗', '.': '.',
-  };
-  return number.toString().split('').map((d) => map[d] || d).join('');
+const toMath = (num) => {
+    const map = { '0':'𝟎','1':'𝟏','2':'𝟐','3':'𝟑','4':'𝟒','5':'𝟓','6':'𝟔','7':'𝟕','8':'𝟖','9':'𝟗','.':'.' };
+    return num.toString().split('').map(d => map[d] || d).join('');
 };
 
 const clockString = (ms) => {
-  const days = Math.floor(ms / 86400000);
-  const hours = Math.floor((ms % 86400000) / 3600000);
-  const minutes = Math.floor((ms % 3600000) / 60000);
-  const seconds = Math.floor((ms % 60000) / 1000);
-  const f = (n) => toMathematicalAlphanumericSymbols(n.toString().padStart(2, '0'));
-  return `${f(days)}:${f(hours)}:${f(minutes)}:${f(seconds)}`;
+    const d = Math.floor(ms / 86400000);
+    const h = Math.floor((ms % 86400000) / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    return `${toMath(d.toString().padStart(2,'0'))}:${toMath(h.toString().padStart(2,'0'))}:${toMath(m.toString().padStart(2,'0'))}:${toMath(s.toString().padStart(2,'0'))}`;
 };
 
-export const data = new SlashCommandBuilder()
-  .setName('ping')
-  .setDescription('Pannello di controllo: stato e risorse del bot');
+// 🗑️ Elimina file temporanei dalle sessioni
+function cleanSessions() {
+    const sessionPath = path.resolve('session');
+    if (!fs.existsSync(sessionPath)) return { removed: 0, path: 'session (non trovata)' };
 
-function runClean() {
-  if (global.gc) {
-    try {
-      global.gc();
-      return '🧹 Pulizia completata, RAM ottimizzata';
-    } catch (e) {}
-  }
-  return '🧹 Pulizia eseguita (avvia con --expose-gc per liberare davvero la RAM)';
+    const files = fs.readdirSync(sessionPath);
+    let removed = 0;
+    for (const f of files) {
+        if (f.endsWith('.tmp')) {
+            try { fs.unlinkSync(path.join(sessionPath, f)); removed++; } catch {}
+        }
+    }
+    return { removed, path: sessionPath };
 }
 
-function buildPanel(client, latency, note = '') {
-  const uptime = clockString(process.uptime() * 1000);
+module.exports = {
+    commands: ['ping', 'stats', 'status', 'clean', 'pulisci', 'clearsessions', 'sessioni'],
 
-  const totalMemMB = (os.totalmem() / (1024 * 1024)).toFixed(2);
-  const usedMemMB = ((os.totalmem() - os.freemem()) / (1024 * 1024)).toFixed(2);
+    run: async (sock, m, args, cmd) => {
+        const jid = m.key.remoteJid;
 
-  const mem = process.memoryUsage();
-  const heapUsedMB = (mem.heapUsed / (1024 * 1024)).toFixed(2);
-  const heapTotalMB = (mem.heapTotal / (1024 * 1024)).toFixed(2);
+        // 🔒 solo owner per i comandi di pulizia
+        if (['clean', 'pulisci', 'clearsessions', 'sessioni'].includes(cmd) && !isOwner(m.key.participant || m.key.remoteJid))
+            return await sock.sendMessage(jid, { text: '❌ Comando riservato al proprietario.' }, { quoted: m });
 
-  const embed = new EmbedBuilder()
-    .setTitle('𝐙𝐞𝐧𝐨𝐁𝐨𝐭 🭵 𝐒𝐲𝐬𝐭𝐞𝚖 𝐌𝐨𝐧𝐢𝐭𝐨𝐫')
-    .setColor(0x5865f2)
-    .setDescription(
-      `🌐 𝚲𝐓𝐓𝕀𝐕𝕀𝐓𝚲: ${uptime}\n` +
-      `⚡ 𝐕𝚵𝐋Ꮻ𝐂𝕀𝐓𝚲: ${toMathematicalAlphanumericSymbols(latency)} 𝐦𝐬\n` +
-      `📡 Gateway: ${toMathematicalAlphanumericSymbols(Math.round(client.ws.ping))} ms\n\n` +
-      `💾 𝐑𝐀𝐌 (server): ${usedMemMB} MB / ${totalMemMB} MB\n` +
-      `📊 𝐌𝐄𝐌 (process): ${heapUsedMB} MB / ${heapTotalMB} MB`
-    )
-    .setFooter({ text: note ? `ZenoBot • ${note}` : 'ZenoBot • Pannello di Controllo' });
+        // 🧹 Pulisci RAM
+        if (cmd === 'clean' || cmd === 'pulisci') {
+            if (global.processedMessages) global.processedMessages.clear();
+            if (global.spamTracker) global.spamTracker = {};
+            if (global.gc) { try { global.gc(); } catch {} }
+            return await sock.sendMessage(jid, {
+                text: '🧹 *RAM pulita!*\n\n✅ Cache messaggi svuotata\n✅ Spam tracker azzerato'
+            }, { quoted: m });
+        }
 
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('ping:refresh').setLabel('🔄 Aggiorna Stato').setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId('ping:clean').setLabel('🧹 Pulisci RAM').setStyle(ButtonStyle.Secondary),
-  );
+        // 🗑️ Elimina sessioni temporanee
+        if (cmd === 'clearsessions' || cmd === 'sessioni') {
+            const result = cleanSessions();
+            if (result.removed === 0) {
+                return await sock.sendMessage(jid, {
+                    text: `🗑️ *Sessioni pulite!*\n\n⚠️ Nessun file temporaneo trovato.`
+                }, { quoted: m });
+            }
+            return await sock.sendMessage(jid, {
+                text: `🗑️ *Sessioni pulite!*\n\n✅ Rimossi *${result.removed}* file temporanei`
+            }, { quoted: m });
+        }
 
-  return { embeds: [embed], components: [row] };
-}
+        // === STATISTICHE ===
+        const start = Date.now();
+        const uptime = clockString(process.uptime() * 1000);
+        let latency = (() => { const ts = Number(m.messageTimestamp && m.messageTimestamp.toNumber ? m.messageTimestamp.toNumber() : m.messageTimestamp) * 1000; const d = Date.now() - ts; return d > 0 && d < 60000 ? d : Math.max(1, Date.now() - start); })();
+        const speedFont = toMath(latency);
 
-// Funziona sia con /ping sia con i comandi col prefisso (.ping, .stats, .clean...)
-async function ping(ctx, { conn, command = 'ping' } = {}) {
-  let note = '';
-  if (command === 'clean' || command === 'pulisci') note = runClean();
+        const totalMemMB = (os.totalmem() / (1024 * 1024)).toFixed(2);
+        const usedMemMB = ((os.totalmem() - os.freemem()) / (1024 * 1024)).toFixed(2);
+        const heapUsed = (process.memoryUsage().heapUsed / (1024 * 1024)).toFixed(2);
+        const heapTotal = (process.memoryUsage().heapTotal / (1024 * 1024)).toFixed(2);
 
-  const latency = Math.max(0, Date.now() - ctx.createdTimestamp);
-  return ctx.reply(buildPanel(conn, latency, note));
-}
+        const txt = `𝐙𝐞𝐧𝐨𝐁𝐨𝐭 𝐒𝐲𝐬𝐭𝐞𝐦 𝐌𝐨𝐧𝐢𝐭𝐨𝐫\n\n` +
+                    `🌐 𝐔𝐩𝐭𝐢𝐦𝐞: ${uptime}\n` +
+                    `⚡ 𝐋𝐚𝐭𝐞𝐧𝐳𝐚: ${speedFont} ms\n\n` +
+                    `💾 RAM server: ${usedMemMB} MB / ${totalMemMB} MB\n` +
+                    `📊 Mem process: ${heapUsed} MB / ${heapTotal} MB`;
 
-ping.command = /^(ping|stats|status|clean|pulisci)$/i;
-ping.help = ['ping'];
-ping.tags = ['info'];
-ping.desc = 'Stato e risorse del bot';
-
-export default ping;
-
-// Bottoni del pannello
-export const prefix = 'ping';
-export async function onComponent(i, client) {
-  const action = i.customId.split(':')[1];
-  const note = action === 'clean' ? runClean() : '';
-  const latency = Math.max(0, Date.now() - i.createdTimestamp);
-  await i.update(buildPanel(client, latency, note));
-}
+        return await sendButtons(
+            sock, jid, txt, 'ZenoBot • Pannello di Controllo',
+            [
+                { text: '🔄 Aggiorna', id: 'ping' },
+                { text: '🧹 Pulisci RAM', id: 'clean' },
+                { text: '🗑️ Pulisci temp', id: 'clearsessions' }
+            ],
+            m
+        );
+    }
+};

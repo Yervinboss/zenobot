@@ -1,152 +1,78 @@
-import {
-  SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags,
-} from 'discord.js';
-import * as eco from '../lib/eco.js';
+const fs = require('fs');
+const path = require('path');
+const { pureId } = require('../lib/utils');
 
-const MIN_BET = 10;
-const SEVEN = '7️⃣';
+const dbPath = path.join(__dirname, '../database/rpg.json');
+const SYMBOLS = '🍒,🍋,🍊,🍇,⭐,💎,7️⃣'.split(',');
+const BET_AMOUNTS = [100, 1000, 10000];
 
-export const data = new SlashCommandBuilder()
-  .setName('slot')
-  .setDescription('Gioca alla slot machine')
-  .addIntegerOption((o) =>
-    o.setName('puntata').setDescription('Quanto vuoi puntare (default 100)').setMinValue(MIN_BET).setRequired(false))
-  .addBooleanOption((o) =>
-    o.setName('info').setDescription('Mostra la tabella dei premi').setRequired(false));
+function getDB() {
+    if (!fs.existsSync(dbPath)) {
+        fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+        fs.writeFileSync(dbPath, JSON.stringify({}));
+    }
+    try { return JSON.parse(fs.readFileSync(dbPath, 'utf-8')); } catch { return {}; }
+}
+function saveDB(data) { fs.writeFileSync(dbPath, JSON.stringify(data, null, 2)); }
+function getUser(db, id) {
+    if (!db[id]) db[id] = { level: 1, xp: 0, money: 1000, lastWork: 0 };
+    return db[id];
+}
+const formatMoney = (n) => '€' + n.toLocaleString('it-IT');
+const spin = () => [0,0,0].map(() => SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]);
 
-// simbolo, peso (probabilità)
-const SYMBOLS = [['🍒', 30], ['🍋', 25], ['🍇', 20], ['🔔', 12], ['💎', 7], [SEVEN, 4]];
-const TOTAL = SYMBOLS.reduce((s, [, w]) => s + w, 0);
-const PAY3 = { '🍒': 16, '🍋': 28, '🍇': 42, '🔔': 70, '💎': 170, [SEVEN]: 330 };
+async function playSlot(sock, jid, m, userId, betAmount) {
+    const db = getDB();
+    const user = getUser(db, userId);
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    if (user.money < betAmount)
+        return sock.sendMessage(jid, { text: `❌ Non hai abbastanza soldi! Hai ${formatMoney(user.money)}.` }, { quoted: m });
 
-function draw() {
-  let n = Math.random() * TOTAL;
-  for (const [s, w] of SYMBOLS) { n -= w; if (n < 0) return s; }
-  return '🍒';
+    const result = spin();
+    const display = result.join(' | ');
+    let winnings = 0;
+
+    if (result[0] === result[1] && result[1] === result[2]) {
+        winnings = result[0] === '7️⃣' ? betAmount * 10 : betAmount * 5;
+    } else if (result[0] === result[1] || result[1] === result[2] || result[0] === result[2]) {
+        winnings = Math.floor(betAmount * 1.5);
+    }
+
+    let txt = `🎰 [ ${display} ]\n\n`;
+    if (winnings > 0) {
+        user.money += (winnings - betAmount);
+        txt += `🎉 *HAI VINTO ${formatMoney(winnings)}!*\n`;
+    } else {
+        user.money -= betAmount;
+        txt += `💔 Hai perso ${formatMoney(betAmount)}.\n`;
+    }
+    txt += `\n💰 Saldo: ${formatMoney(user.money)}`;
+    saveDB(db);
+    return sock.sendMessage(jid, { text: txt }, { quoted: m });
 }
 
-function evaluate(r, bet) {
-  const [a, b, c] = r;
-  let mult = 0;
-  let label = '😬 Niente da fare, riprova!';
-  if (a === b && b === c) {
-    mult = PAY3[a];
-    label = a === SEVEN ? '🎰 **JACKPOT!!!** 🎰' : `🎉 **Tris di ${a}!**`;
-  } else if (a === b || b === c || a === c) {
-    mult = 2;
-    label = '🍒🍒 **Due ciliegie!**';
-  }
-  return { mult, win: Math.floor(bet * mult), label };
-}
+module.exports = {
+    commands: ['slot', /^slotbet_\d+$/],
+    run: async (sock, m, args, cmd) => {
+        const jid = m.key.remoteJid;
+        const userId = pureId(m.key.participant || m.key.remoteJid);
 
-const grid = (r) => `## ${r.join('  ┃  ')}`;
+        if (cmd.startsWith('slotbet_')) {
+            const betAmount = parseInt(cmd.replace('slotbet_', ''), 10);
+            return await playSlot(sock, jid, m, userId, betAmount);
+        }
 
-function spinEmbed(reels, bet) {
-  return new EmbedBuilder()
-    .setColor(0x9b59b6)
-    .setTitle('🎰 Slot machine')
-    .setDescription(`💰 **Puntata:** ${eco.fmt(bet)}\n\n${grid(reels)}\n\n*Gira...*`);
-}
-
-function finalPayload(reels, bet, res, playerId) {
-  const net = res.win - bet;
-  const sign = net > 0 ? '+' : net < 0 ? '−' : '';
-  const label = net > 0 ? '📈 Guadagno' : net < 0 ? '📉 Perdita' : '↔️ Puntata restituita';
-  const embed = new EmbedBuilder()
-    .setColor(net > 0 ? 0x2ecc71 : net < 0 ? 0xe74c3c : 0x95a5a6)
-    .setTitle('🎰 Slot machine')
-    .setDescription(
-      `💰 **Puntata:** ${eco.fmt(bet)}\n\n${grid(reels)}\n\n${res.label}\n${label}: **${sign}${eco.fmt(Math.abs(net))}**`,
-    )
-    .setFooter({ text: `Saldo: ${eco.fmt(eco.balance(playerId))} • Zeno Bot` });
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`slot:again:${playerId}:${bet}`)
-      .setLabel(`🔄 Gira ancora (${bet})`)
-      .setStyle(ButtonStyle.Primary),
-  );
-  return { embeds: [embed], components: [row] };
-}
-
-function infoEmbed() {
-  const lines = Object.entries(PAY3).map(([s, m]) => `${s} ${s} ${s} → **×${m}**${s === SEVEN ? ' (jackpot)' : ''}`);
-  lines.push('Due simboli uguali (coppia) → **×2**');
-  return new EmbedBuilder()
-    .setColor(0x9b59b6)
-    .setTitle('📋 Tabella premi slot')
-    .setDescription(`${lines.join('\n')}\n\nPuntata minima: ${eco.fmt(MIN_BET)}`);
-}
-
-// Gioca una mano: paga subito la vincita, poi anima i rulli
-async function run(first, edit, playerId, bet) {
-  const r = [draw(), draw(), draw()];
-  const res = evaluate(r, bet);
-  const net = res.win - bet;
-  if (res.win) eco.add(playerId, res.win);
-  if (net > 0) eco.stat(playerId, 'won', net);
-  else if (net < 0) eco.stat(playerId, 'lost', -net);
-
-  const safe = (p) => Promise.resolve(edit(p)).catch(() => {});
-  await first({ embeds: [spinEmbed([draw(), draw(), draw()], bet)], components: [] });
-  await sleep(650);
-  await safe({ embeds: [spinEmbed([r[0], draw(), draw()], bet)] });
-  await sleep(650);
-  await safe({ embeds: [spinEmbed([r[0], r[1], draw()], bet)] });
-  await sleep(650);
-  await safe(finalPayload(r, bet, res, playerId));
-}
-
-async function slot(ctx, { text = '' } = {}) {
-  const slash = eco.isSlash(ctx);
-  const playerId = slash ? ctx.user.id : ctx.author.id;
-
-  if ((slash && ctx.options.getBoolean('info')) || (!slash && /\binfo\b/i.test(text))) {
-    return ctx.reply({ embeds: [infoEmbed()] });
-  }
-
-  let bet = 100;
-  if (slash) bet = ctx.options.getInteger('puntata') ?? 100;
-  else {
-    const m = text.match(/(\d+|all|tutto|max)/i);
-    if (m) bet = /^\d+$/.test(m[1]) ? parseInt(m[1], 10) : eco.balance(playerId);
-  }
-
-  if (bet < MIN_BET) return eco.say(ctx, `❌ La puntata minima è ${eco.fmt(MIN_BET)}.`, true);
-  if (!eco.take(playerId, bet)) {
-    return eco.say(
-      ctx,
-      `💸 Non hai abbastanza soldi: saldo **${eco.fmt(eco.balance(playerId))}**. Prova con \`.daily\` o \`.work\`!`,
-      true,
-    );
-  }
-
-  let msg = null;
-  const first = async (p) => { msg = await ctx.reply(p); };
-  const edit = slash ? (p) => ctx.editReply(p) : (p) => msg.edit(p);
-  return run(first, edit, playerId, bet);
-}
-
-slot.command = /^(slot|slots)$/i;
-slot.help = ['slot'];
-slot.tags = ['fun', 'economy'];
-slot.desc = 'Gioca alla slot machine puntando soldi';
-
-export default slot;
-
-// ───────────── Bottone "Gira ancora" ─────────────
-export const prefix = 'slot';
-export async function onComponent(i) {
-  const [, action, ownerId, betStr] = i.customId.split(':');
-  const hidden = (content) => i.reply({ content, flags: MessageFlags.Ephemeral });
-
-  if (action !== 'again') return;
-  if (i.user.id !== ownerId) return hidden('⛔ Questa slot non è tua.');
-
-  const bet = parseInt(betStr, 10) || 100;
-  if (!eco.take(i.user.id, bet)) {
-    return hidden(`💸 Non hai abbastanza soldi per puntare ${eco.fmt(bet)}: saldo **${eco.fmt(eco.balance(i.user.id))}**.`);
-  }
-  return run((p) => i.update(p), (p) => i.editReply(p), i.user.id, bet);
-}
+        if (cmd === 'slot') {
+            const buttons = BET_AMOUNTS.map(amount => ({
+                buttonId: `slotbet_${amount}`,
+                buttonText: { displayText: formatMoney(amount) },
+                type: 1
+            }));
+            return await sock.sendMessage(jid, {
+                text: '🎰 Scegli quanto vuoi puntare:',
+                footer: 'Zeno Bot - Slot Machine',
+                buttons, headerType: 1
+            }, { quoted: m });
+        }
+    }
+};

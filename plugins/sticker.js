@@ -1,159 +1,138 @@
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-import { SlashCommandBuilder, AttachmentBuilder } from 'discord.js';
+const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const ffmpeg = require('fluent-ffmpeg');
+const fs = require('fs');
+const path = require('path');
 
-const run = promisify(execFile);
-const MAX_INPUT = 25 * 1024 * 1024; // file di partenza
-const MAX_STICKER = 500 * 1024;     // limite Discord per gli sticker: 512 KB
+let Webp = null;
+try { Webp = require('node-webpmux'); } catch {}
 
-// Ritaglio quadrato centrato + 320x320 (misura degli sticker di Discord)
-const square = (size) =>
-  `scale=${size}:${size}:force_original_aspect_ratio=increase:flags=lanczos,crop=${size}:${size}`;
+const PACK = 'ZENO ULTIMATE';
+const AUTHOR = 'Zeno Bot';
+const MAX_STATIC = 95 * 1024;
+const MAX_ANIM = 480 * 1024;
 
-const tmp = (name) => path.join(os.tmpdir(), name);
-const rm = (p) => { try { if (p && fs.existsSync(p)) fs.rmSync(p, { force: true }); } catch {} };
-const isInteraction = (ctx) => typeof ctx.isChatInputCommand === 'function';
-
-// ───────────── Conversione ─────────────
-async function convertStatic(input, out) {
-  for (const size of [320, 256]) {
-    await run('ffmpeg', [
-      '-y', '-i', input, '-frames:v', '1',
-      '-vf', square(size), '-compression_level', '9', out,
-    ], { timeout: 60 * 1000 });
-    if (fs.statSync(out).size <= MAX_STICKER) return;
-  }
-  throw new Error('immagine troppo pesante');
+async function addExif(buf) {
+    if (!Webp) return buf;
+    try {
+        const img = new Webp.Image();
+        await img.load(buf);
+        const json = {
+            'sticker-pack-id': 'zeno-' + Date.now(),
+            'sticker-pack-name': PACK,
+            'sticker-pack-publisher': AUTHOR,
+            emojis: ['😀']
+        };
+        const head = Buffer.from([0x49,0x49,0x2A,0x00,0x08,0x00,0x00,0x00,0x01,0x00,0x41,0x57,0x07,0x00,0x00,0x00,0x00,0x00,0x16,0x00,0x00,0x00]);
+        const jb = Buffer.from(JSON.stringify(json), 'utf-8');
+        const exif = Buffer.concat([head, jb]);
+        exif.writeUIntLE(jb.length, 14, 4);
+        img.exif = exif;
+        return await img.save(null);
+    } catch (e) {
+        console.error('[STICKER] exif', e.message);
+        return buf;
+    }
 }
 
-async function convertAnimated(input, out) {
-  const attempts = [
-    { fps: 12, colors: 64, t: 3 },
-    { fps: 10, colors: 48, t: 3 },
-    { fps: 8, colors: 32, t: 2.5 },
-    { fps: 8, colors: 24, t: 2 },
-  ];
-  for (const a of attempts) {
-    await run('ffmpeg', [
-      '-y', '-t', String(a.t), '-i', input,
-      '-vf', `fps=${a.fps},${square(320)},split[a][b];[a]palettegen=max_colors=${a.colors}[p];[b][p]paletteuse=dither=bayer:bayer_scale=5`,
-      '-loop', '0', out,
-    ], { timeout: 2 * 60 * 1000 });
-    if (fs.statSync(out).size <= MAX_STICKER) return;
-  }
-  throw new Error('animazione troppo pesante');
+function convert(input, output, animated, o) {
+    return new Promise((resolve, reject) => {
+        let vf = 'crop=w=min(iw\\,ih):h=min(iw\\,ih),scale=512:512:flags=lanczos';
+        if (animated) vf += `,fps=${o.fps}`;
+
+        const opts = ['-vf', vf, '-vcodec', 'libwebp', '-lossless', '0', '-q:v', String(o.q), '-compression_level', '6', '-an'];
+        if (animated) opts.push('-loop', '0', '-preset', 'default', '-t', String(o.dur));
+        else opts.push('-frames:v', '1');
+
+        ffmpeg(input)
+            .outputOptions(opts)
+            .format('webp')
+            .on('end', resolve)
+            .on('error', reject)
+            .save(output);
+    });
 }
 
-// Allegato: nello stesso messaggio, oppure in quello a cui stai rispondendo
-async function findAttachment(m) {
-  let att = m.attachments.first();
-  if (!att && m.reference?.messageId) {
-    const ref = await m.channel.messages.fetch(m.reference.messageId).catch(() => null);
-    att = ref?.attachments.first();
-  }
-  return att;
-}
+module.exports = {
+    commands: ['s', 'sticker'],
+    run: async (sock, m, args, cmd) => {
+        const jid = m.key.remoteJid;
 
-// ───────────── Comando: /sticker  oppure  .s ─────────────
-export const data = new SlashCommandBuilder()
-  .setName('sticker')
-  .setDescription('Trasforma una foto, GIF o breve video in uno sticker quadrato')
-  .addAttachmentOption((o) => o.setName('file').setDescription('Foto, GIF o video').setRequired(true))
-  .addStringOption((o) => o.setName('nome').setDescription('Nome dello sticker (2-30 caratteri)'))
-  .addBooleanOption((o) => o.setName('salva').setDescription('Aggiungilo agli sticker del server (default: sì)'));
+        const msg = m.message || {};
+        const ctx = msg.extendedTextMessage?.contextInfo ||
+                    msg.imageMessage?.contextInfo ||
+                    msg.videoMessage?.contextInfo ||
+                    msg.buttonsResponseMessage?.contextInfo || {};
 
-async function sticker(ctx, { text = '' } = {}) {
-  const slash = isInteraction(ctx);
-  const user = slash ? ctx.user : ctx.author;
-  const say = (payload) => (slash ? ctx.editReply(payload) : ctx.reply(payload));
+        let mediaMsg = null;
+        let mime = '';
 
-  const att = slash ? ctx.options.getAttachment('file') : await findAttachment(ctx);
-  if (!att) {
-    return ctx.reply('❌ *Istruzioni:* invia una foto/GIF/video con la didascalia `.s`, rispondi a un messaggio con un allegato, oppure usa `/sticker`.');
-  }
+        if (msg.imageMessage) { mediaMsg = msg.imageMessage; mime = mediaMsg.mimetype; }
+        else if (msg.videoMessage) { mediaMsg = msg.videoMessage; mime = mediaMsg.mimetype; }
+        else if (ctx.quotedMessage) {
+            const q = ctx.quotedMessage;
+            if (q.imageMessage) { mediaMsg = q.imageMessage; mime = q.imageMessage.mimetype; }
+            else if (q.videoMessage) { mediaMsg = q.videoMessage; mime = q.videoMessage.mimetype; }
+        }
 
-  const type = att.contentType || '';
-  const animated = type.includes('gif') || type.startsWith('video');
-  if (!animated && !type.startsWith('image')) {
-    return ctx.reply('❌ Puoi convertire solo foto, GIF o brevi video!');
-  }
-  if (att.size > MAX_INPUT) return ctx.reply('❌ File troppo grande (max 25 MB).');
+        if (!mediaMsg || !mime) {
+            return await sock.sendMessage(jid, {
+                text: '❌ *Istruzioni:* Invia una foto/video con la didascalia `.s` oppure rispondi a un elemento multimediale!'
+            }, { quoted: m });
+        }
 
-  if (slash) await ctx.deferReply();
-  else await ctx.react('⏳').catch(() => {});
+        const isImage = mime.includes('image');
+        const isVideo = mime.includes('video') || mime.includes('gif');
 
-  const id = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  const input = tmp(`zeno_st_in_${id}`);
-  const ext = animated ? 'gif' : 'png';
-  const out = tmp(`zeno_st_out_${id}.${ext}`);
+        if (!isImage && !isVideo)
+            return await sock.sendMessage(jid, { text: '❌ Puoi convertire solo foto, GIF o brevi video!' }, { quoted: m });
 
-  try {
-    const res = await fetch(att.url);
-    if (!res.ok) throw new Error(`download allegato: ${res.status}`);
-    fs.writeFileSync(input, Buffer.from(await res.arrayBuffer()));
+        await sock.sendMessage(jid, { react: { text: '⏳', key: m.key } });
 
-    if (animated) await convertAnimated(input, out);
-    else await convertStatic(input, out);
+        const id = `${Date.now()}_${Math.floor(Math.random() * 99999)}`;
+        const tmpInput = path.join(__dirname, `tmp_in_${id}`);
+        const tmpOutput = path.join(__dirname, `tmp_out_${id}.webp`);
 
-    // Nome dello sticker (2-30 caratteri)
-    let name = (slash ? ctx.options.getString('nome') : text) || '';
-    name = name.replace(/[^\w ]/g, '').trim().slice(0, 30);
-    if (name.length < 2) name = `zeno_${Date.now().toString().slice(-5)}`;
+        try {
+            const stream = await downloadContentFromMessage(mediaMsg, isImage ? 'image' : 'video');
+            const chunks = [];
+            for await (const chunk of stream) chunks.push(chunk);
+            fs.writeFileSync(tmpInput, Buffer.concat(chunks));
 
-    const save = slash ? (ctx.options.getBoolean('salva') ?? true) : true;
-    let created = null;
-    let reason = '';
+            const attempts = isImage
+                ? [{ q: 80 }, { q: 60 }, { q: 40 }, { q: 25 }, { q: 12 }]
+                : [
+                    { q: 50, fps: 15, dur: 8 },
+                    { q: 38, fps: 12, dur: 7 },
+                    { q: 28, fps: 10, dur: 6 },
+                    { q: 18, fps: 8, dur: 5 },
+                    { q: 10, fps: 8, dur: 4 }
+                ];
+            const limit = isImage ? MAX_STATIC : MAX_ANIM;
 
-    if (save && ctx.guild) {
-      try {
-        created = await ctx.guild.stickers.create({
-          file: new AttachmentBuilder(out, { name: `sticker.${ext}` }),
-          name,
-          tags: 'zeno',
-          description: 'Creato da Zeno Bot',
-          reason: `Sticker creato da ${user.username}`,
-        });
-      } catch (e) {
-        console.error('Errore creazione sticker:', e.message);
-        if (e.code === 30039) reason = 'gli slot sticker del server sono pieni';
-        else if (e.code === 50013 || e.code === 50001) reason = 'mi manca il permesso "Gestisci espressioni"';
-        else reason = 'non sono riuscito a crearlo nel server';
-      }
+            let result = null;
+            for (const o of attempts) {
+                if (fs.existsSync(tmpOutput)) fs.unlinkSync(tmpOutput);
+                await convert(tmpInput, tmpOutput, !isImage, o);
+                const buf = fs.readFileSync(tmpOutput);
+                if (buf.length <= limit) { result = buf; break; }
+            }
+
+            if (!result) throw new Error('File troppo pesante anche dopo la compressione, prova un video più corto');
+
+            result = await addExif(result);
+
+            await sock.sendMessage(jid, { sticker: result }, { quoted: m });
+            await sock.sendMessage(jid, { react: { text: '✅', key: m.key } });
+
+        } catch (e) {
+            console.error('[STICKER]', e);
+            await sock.sendMessage(jid, { react: { text: '❌', key: m.key } });
+            await sock.sendMessage(jid, {
+                text: '❌ Errore sticker: ' + String(e.message || e).split('\n')[0].slice(0, 200)
+            }, { quoted: m });
+        } finally {
+            if (fs.existsSync(tmpInput)) fs.unlinkSync(tmpInput);
+            if (fs.existsSync(tmpOutput)) fs.unlinkSync(tmpOutput);
+        }
     }
-
-    if (created) {
-      await ctx.channel.send({ stickers: [created.id] });
-      await say(`✅ Sticker **${created.name}** creato!`);
-    } else {
-      await say({
-        content: reason ? `⚠️ Sticker non salvato nel server: ${reason}. Ecco il file quadrato:` : '✅ Ecco il tuo sticker!',
-        files: [new AttachmentBuilder(out, { name: `zeno_sticker.${ext}` })],
-      });
-    }
-
-    if (!slash) {
-      ctx.reactions.resolve('⏳')?.users.remove(ctx.client.user.id).catch(() => {});
-      await ctx.react('✅').catch(() => {});
-    }
-  } catch (e) {
-    console.error('Errore sticker:', e.stderr || e.message);
-    if (slash) await ctx.editReply('❌ Non sono riuscito a convertire il file.').catch(() => {});
-    else {
-      ctx.reactions.resolve('⏳')?.users.remove(ctx.client.user.id).catch(() => {});
-      await ctx.react('❌').catch(() => {});
-    }
-  } finally {
-    rm(input);
-    rm(out);
-  }
-}
-
-sticker.command = /^(s|sticker)$/i;
-sticker.help = ['s'];
-sticker.tags = ['media'];
-sticker.desc = 'Trasforma foto, GIF o video in uno sticker';
-
-export default sticker;
+};
