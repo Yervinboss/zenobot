@@ -30,27 +30,14 @@
 > 💡 Scarica **Termux** da [F-Droid](https://f-droid.org/packages/com.termux/) — non dal Play Store
 
 ```bash
-# 1️⃣ Aggiorna Termux
-pkg update && pkg upgrade -y
-
-# 2️⃣ Installa i pacchetti
-pkg install -y git nodejs-lts ffmpeg python
-pip install -U yt-dlp
-
-# 3️⃣ Clona il bot (repository ufficiale)
-git clone https://github.com/Yervinboss/zenobot.git
-cd zenobot
-
-# 4️⃣ Installa le dipendenze
-npm install
-
-# 5️⃣ Configura il numero
-# Copia il file di esempio e aprilo con nano
-cp config.example.json config.json
-nano config.json
-
-# 6️⃣ Avvia il bot
-node index.js
+pkg update -y && pkg upgrade -y && \
+pkg install -y git nodejs-lts ffmpeg python && \
+pip install -U yt-dlp && \
+git clone https://github.com/Yervinboss/zenobot.git && \
+cd zenobot && \
+npm install && \
+cp config.example.json config.json && \
+echo "✅ Installazione completata! Ora modifica config.json con: nano config.json"
 ```
 
 🔑 Login: apri WhatsApp → Dispositivi collegati → Collega un dispositivo → scansiona il QR
