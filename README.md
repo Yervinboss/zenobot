@@ -35,8 +35,8 @@ pkg install -y git nodejs-lts ffmpeg python && \
 pip install -U yt-dlp && \
 git clone https://github.com/Yervinboss/zenobot.git && \
 cd zenobot && \
-npm install && \
-cp config.example.json config.json && \
+npm install --legacy-peer-deps && \
+cp config.example.json config.json 2>/dev/null || true && \
 echo "✅ Installazione completata! Ora modifica config.json con: nano config.json"
 ```
 
