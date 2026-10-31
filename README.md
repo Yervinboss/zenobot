@@ -37,14 +37,16 @@ pkg update && pkg upgrade -y
 pkg install -y git nodejs-lts ffmpeg python
 pip install -U yt-dlp
 
-# 3️⃣ Clona il bot
-git clone https://github.com/TUO-USERNAME/zeno-ultimate.git
-cd zeno-ultimate
+# 3️⃣ Clona il bot (repository ufficiale)
+git clone https://github.com/Yervinboss/zenobot.git
+cd zenobot
 
 # 4️⃣ Installa le dipendenze
 npm install
 
 # 5️⃣ Configura il numero
+# Copia il file di esempio e aprilo con nano
+cp config.example.json config.json
 nano config.json
 
 # 6️⃣ Avvia il bot
