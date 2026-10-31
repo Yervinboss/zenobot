@@ -36,6 +36,7 @@ pip install -U yt-dlp && \
 git clone https://github.com/Yervinboss/zenobot.git && \
 cd zenobot && \
 npm install --legacy-peer-deps && \
+sed -i '/"type": "module"/d' package.json && \
 cp config.example.json config.json 2>/dev/null || true && \
 echo "✅ Installazione completata! Ora modifica config.json con: nano config.json"
 ```
