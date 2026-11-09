@@ -10,7 +10,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
   "dependencies": {
     "@hapi/boom": "^10.0.1",
     "@itsliaaa/baileys": "^0.3.18-final",

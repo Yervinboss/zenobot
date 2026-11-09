@@ -36,7 +36,7 @@ async function isAdmin(sock, jid, m) {
 }
 
 module.exports = {
-    commands: ['p', 'd'],
+    commands: ['p', 'd', 'promote', 'demote'],
     run: async (sock, m, args, cmd) => {
         const jid = m.key.remoteJid;
         const sender = m.key.participant || m.key.remoteJid;
@@ -68,10 +68,10 @@ module.exports = {
             const finalTarget = participant?.id || targetJid;
 
             let msgText = '';
-            if (cmd === 'p') {
+            if (['p', 'promote'].includes(cmd)) {
                 await sock.groupParticipantsUpdate(jid, [finalTarget], 'promote');
                 msgText = `⚡ @${targetId} *È DIVENTATO UN DIO!* 👑`;
-            } else if (cmd === 'd') {
+            } else if (['d', 'demote'].includes(cmd)) {
                 await sock.groupParticipantsUpdate(jid, [finalTarget], 'demote');
                 msgText = `☠️ @${targetId} *È RITORNATO UN COMUNE MORTALE!* 📉`;
             }

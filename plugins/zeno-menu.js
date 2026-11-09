@@ -69,12 +69,12 @@ const RULES = [
 
 const MAP = {}
 const put = (cat, list) => list.split(/\s+/).filter(Boolean).forEach(c => { MAP[c] = cat })
-put('moderazione', 'kick warn unwarn richiamo grazia mute unmute aperto chiuso apri chiudi p promote d demote del delete tag link invito qr qrlink admin staff paneladmin antilink antispam antivoip antibot req richieste richiesta welcome setwelcome setbenvenuto testwelcome soloadmin solo setgpp gpp fotogruppo top zeno')
+put('moderazione', 'kick warn unwarn richiamo grazia mute unmute aperto chiuso apri chiudi p promote d demote del delete tag link invito qr qrlink admin staff paneladmin antilink antispam antivoip antibot req richieste richiesta welcome testwelcome soloadmin solo setgpp gpp fotogruppo top zeno')
 put('funzioni',    'afk afk_group afk_all afklist id myid pp tpnumero ping')
 put('fun',         'abbraccia abbraccio bacio kiss bacia corna letto sega ditalino cazzo frocio negro dox doxxing figa ano culometro drogato alcolizzato alcol infame quantosbirro sbirrocheck palla imperatore doss ddos dossattacco sex sesso accoppia ban banna fakeban')
 put('rpg',         'bal balance soldi portafoglio work bj blackjack slot ruba steal sposa divorzio divorzia')
-put('media',       'song play shazam pl tp playlist addplaylist casuale random shuffle suggerisci simili consiglia s sticker toaudio tomp3 mp3 audio vv tx')
-put('creatore',    'stats status clean pulisci clearsessions sessioni menu comandi owner setowner addowner delowner shutdown spegni stopbot blackout setbotpp botpp zenon zenooff nuke nukeall purge testadmin debugadmin testios ioslab setcat menucat setmenu')
+put('media',       'song play shazam pl tp addplaylist casuale random shuffle s sticker toaudio tomp3 mp3 audio vv tx')
+put('creatore',    'stats status clean pulisci clearsessions sessioni menu comandi owner setowner addowner delowner shutdown spegni stopbot blackout setbotpp botpp zenon zenooff nuke nukeall purge testadmin debugadmin setcat menucat setmenu')
 
 // ═══════════════════════════════════════════════════════════════
 //  GESTIONE MEDIA (Foto/Video del Menu)

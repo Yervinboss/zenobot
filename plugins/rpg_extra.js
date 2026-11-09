@@ -4,7 +4,7 @@ const zx = require('../lib/zx')
 const DAY = 864e5
 
 module.exports = {
-    commands: ['daily', 'giornaliero', 'bonus', 'paga', 'dai', 'classifica', 'top10', 'profilo', 'me'],
+    commands: ['daily', 'giornaliero', 'bonus', 'paga', 'dai', 'classifica', 'top10', 'profilo', 'me', 'bal', 'balance', 'soldi', 'portafoglio'],
     name: 'rpg_extra',
     category: 'rpg',
     cooldown: 2500,

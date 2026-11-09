@@ -66,8 +66,8 @@ const SCENE_CORNA = [
 //  HANDLER
 // ═══════════════════════════════════════════════════════════════════════════
 module.exports = {
-    commands: ['letto', 'bacio', 'corna'],
-    aliases: ['bed', 'kiss', 'becco'],
+    commands: ['letto', 'corna'],
+    aliases: ['bed', 'becco'],
     cooldown: 3000,
     groupOnly: true,
 
