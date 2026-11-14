@@ -1,12 +1,45 @@
 // ZENO ULTIMATE — .setgpp : cambia la foto profilo del gruppo
-// Uso: rispondi a una foto con .setgpp  (oppure manda la foto con .setgpp in didascalia)
-const { downloadContentFromMessage } = require('@whiskeysockets/baileys')
+// Uso: rispondi a una foto con .setgpp (oppure manda la foto con .setgpp in didascalia)
+const fs = require('fs')
+const path = require('path')
+const { execFile } = require('child_process')
+const { promisify } = require('util')
 
-async function download(imageMessage) {
-    const stream = await downloadContentFromMessage(imageMessage, 'image')
-    const chunks = []
-    for await (const c of stream) chunks.push(c)
-    return Buffer.concat(chunks)
+const run = promisify(execFile)
+
+const LIBS = ['@itsliaaa/baileys', '@realvare/baileys', '@chatunity/baileys', '@whiskeysockets/baileys', 'baileys']
+let dl = null
+async function getDownloader() {
+    if (dl) return dl
+    for (const lib of LIBS) {
+        try {
+            const mod = await import(lib)
+            const fn = mod.downloadContentFromMessage || mod.default?.downloadContentFromMessage
+            if (fn) return (dl = fn)
+        } catch {}
+    }
+    throw new Error('downloadContentFromMessage non trovato')
+}
+
+const unwrap = (x) =>
+    x?.ephemeralMessage?.message ||
+    x?.viewOnceMessage?.message ||
+    x?.viewOnceMessageV2?.message ||
+    x?.documentWithCaptionMessage?.message || x
+
+async function squareJpg(buf) {
+    const inp = path.join(__dirname, `gpp_${Date.now()}.in`)
+    const out = path.join(__dirname, `gpp_${Date.now()}.jpg`)
+    try {
+        fs.writeFileSync(inp, buf)
+        await run('ffmpeg', ['-y', '-i', inp, '-vf', "crop='min(iw,ih)':'min(iw,ih)',scale=640:640", '-frames:v', '1', out], { timeout: 60000 })
+        return fs.readFileSync(out)
+    } catch (e) {
+        console.error('[SETGPP] ffmpeg:', e.message)
+        return buf
+    } finally {
+        for (const f of [inp, out]) { try { if (fs.existsSync(f)) fs.unlinkSync(f) } catch {} }
+    }
 }
 
 module.exports = {
@@ -21,28 +54,36 @@ module.exports = {
 
     async run(sock, m) {
         const jid = m.key.remoteJid
-        const msg = m.message || {}
-        const ci = msg.extendedTextMessage?.contextInfo || msg.imageMessage?.contextInfo || {}
+        const say = (t) => sock.sendMessage(jid, { text: t }, { quoted: m })
+        const react = (e) => sock.sendMessage(jid, { react: { text: e, key: m.key } }).catch(() => {})
 
-        let quoted = ci.quotedMessage
-        quoted = quoted?.viewOnceMessage?.message || quoted?.viewOnceMessageV2?.message || quoted
+        if (!jid.endsWith('@g.us')) return say('❌ Questo comando funziona solo nei gruppi.')
+
+        const msg = unwrap(unwrap(m.message)) || {}
+        const ci = msg.extendedTextMessage?.contextInfo || msg.imageMessage?.contextInfo || {}
+        const quoted = unwrap(unwrap(ci.quotedMessage))
         const img = quoted?.imageMessage || msg.imageMessage
 
         if (!img) {
-            return sock.sendMessage(jid, { text: '📸 *FOTO GRUPPO*\n\nRispondi a una foto con *.setgpp* per usarla come foto del gruppo.' }, { quoted: m })
+            return say('📸 *FOTO GRUPPO*\n\nRispondi a una foto con *.setgpp* per usarla come foto del gruppo.')
         }
 
-        await sock.sendMessage(jid, { react: { text: '⏳', key: m.key } })
+        await react('⏳')
         try {
-            const buffer = await download(img)
-            if (!buffer?.length) throw new Error('download vuoto')
-            await sock.updateProfilePicture(jid, buffer)
-            await sock.sendMessage(jid, { react: { text: '✅', key: m.key } })
-            return sock.sendMessage(jid, { text: '✅ *Foto del gruppo aggiornata!*' }, { quoted: m })
+            const download = await getDownloader()
+            const stream = await download(img, 'image')
+            let buffer = Buffer.alloc(0)
+            for await (const c of stream) buffer = Buffer.concat([buffer, c])
+            if (!buffer.length) throw new Error('download vuoto')
+
+            const photo = await squareJpg(buffer)
+            await sock.updateProfilePicture(jid, photo)
+            await react('✅')
+            return say('✅ *Foto del gruppo aggiornata!*')
         } catch (e) {
-            console.error('[SETGPP]', e.message)
-            await sock.sendMessage(jid, { react: { text: '❌', key: m.key } })
-            return sock.sendMessage(jid, { text: '❌ Non sono riuscito a cambiare la foto.\nControlla che il bot sia *admin* del gruppo e riprova con un\'altra immagine.' }, { quoted: m })
+            console.error('[SETGPP]', e)
+            await react('❌')
+            return say(`❌ Non sono riuscito a cambiare la foto: ${e.message}\n\nControlla che il bot sia *admin* del gruppo.`)
         }
     }
 }

@@ -1,49 +1,100 @@
-const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
-const { isOwner } = require('../lib/owner');
+const fs = require('fs');
+const path = require('path');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
 
-async function downloadMedia(mediaMessage, type) {
-    const stream = await downloadContentFromMessage(mediaMessage, type);
-    let buffer = Buffer.from([]);
-    for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-    return buffer;
+const run = promisify(execFile);
+
+// Numero owner (solo cifre, con prefisso, senza +)
+const OWNERS = ['39XXXXXXXXXX'];
+
+const LIBS = ['@itsliaaa/baileys', '@realvare/baileys', '@chatunity/baileys', '@whiskeysockets/baileys', 'baileys'];
+let dl = null;
+async function getDownloader() {
+    if (dl) return dl;
+    for (const lib of LIBS) {
+        try {
+            const mod = await import(lib);
+            const fn = mod.downloadContentFromMessage || mod.default?.downloadContentFromMessage;
+            if (fn) return (dl = fn);
+        } catch {}
+    }
+    throw new Error('downloadContentFromMessage non trovato');
+}
+
+const digits = (j) => String(j || '').split('@')[0].split(':')[0].replace(/\D/g, '');
+
+async function isOwnerJid(sock, jid) {
+    if (OWNERS.includes(digits(jid))) return true;
+    if (String(jid).endsWith('@lid')) {
+        try {
+            const pn = await sock.signalRepository.lidMapping.getPNForLID(jid);
+            if (pn && OWNERS.includes(digits(pn))) return true;
+        } catch {}
+    }
+    return false;
+}
+
+const unwrap = (x) =>
+    x?.ephemeralMessage?.message ||
+    x?.viewOnceMessage?.message ||
+    x?.viewOnceMessageV2?.message ||
+    x?.documentWithCaptionMessage?.message || x;
+
+async function squareJpg(buf) {
+    const inp = path.join(__dirname, `bpp_${Date.now()}.in`);
+    const out = path.join(__dirname, `bpp_${Date.now()}.jpg`);
+    try {
+        fs.writeFileSync(inp, buf);
+        await run('ffmpeg', ['-y', '-i', inp, '-vf', "crop='min(iw,ih)':'min(iw,ih)',scale=640:640", '-frames:v', '1', out], { timeout: 60000 });
+        return fs.readFileSync(out);
+    } catch (e) {
+        console.error('[SETBOTPP] ffmpeg:', e.message);
+        return buf;
+    } finally {
+        for (const f of [inp, out]) { try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch {} }
+    }
 }
 
 module.exports = {
     commands: ['setbotpp', 'botpp', 'cambiafotobot'],
-    run: async (sock, m, args, cmd) => {
+    run: async (sock, m) => {
         const jid = m.key.remoteJid;
-        const sender = m.key.participant || m.key.remoteJid;
+        const sender = m.key.participant || m.participant || jid;
+        const say = (t) => sock.sendMessage(jid, { text: t }, { quoted: m });
+        const react = (e) => sock.sendMessage(jid, { react: { text: e, key: m.key } }).catch(() => {});
 
-        if (!isOwner(sender))
-            return await sock.sendMessage(jid, { text: '❌ Solo il Creatore del bot!' }, { quoted: m });
+        if (!(m.key.fromMe || await isOwnerJid(sock, sender))) {
+            return say('❌ Solo il Creatore del bot!');
+        }
 
-        const msg = m.message || {};
+        const msg = unwrap(unwrap(m.message)) || {};
         const ctx = msg.extendedTextMessage?.contextInfo || msg.imageMessage?.contextInfo || {};
-
-        let quoted = ctx.quotedMessage;
-        if (quoted?.viewOnceMessage?.message) quoted = quoted.viewOnceMessage.message;
-        else if (quoted?.viewOnceMessageV2?.message) quoted = quoted.viewOnceMessageV2.message;
-
+        const quoted = unwrap(unwrap(ctx.quotedMessage));
         const imageMessage = quoted?.imageMessage || msg.imageMessage;
 
-        if (!imageMessage)
-            return await sock.sendMessage(jid, { text: '📸 *ZENO AVATAR*\n\n❌ Rispondi a un\'immagine con `.setbotpp`' }, { quoted: m });
+        if (!imageMessage) {
+            return say('📸 *ZENO AVATAR*\n\n❌ Rispondi a un\'immagine con `.setbotpp`');
+        }
 
-        await sock.sendMessage(jid, { react: { text: '⏳', key: m.key } });
-
+        await react('⏳');
         try {
-            const buffer = await downloadMedia(imageMessage, 'image');
-            if (!buffer) throw new Error('Download fallito');
+            const download = await getDownloader();
+            const stream = await download(imageMessage, 'image');
+            let buffer = Buffer.alloc(0);
+            for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+            if (!buffer.length) throw new Error('Download fallito');
 
-            await sock.updateProfilePicture(sock.user.id, buffer);
+            const img = await squareJpg(buffer);
+            const me = digits(sock.user.id) + '@s.whatsapp.net';
+            await sock.updateProfilePicture(me, img);
 
-            await sock.sendMessage(jid, { react: { text: '🤖', key: m.key } });
-            return await sock.sendMessage(jid, { text: '🤖 *FOTO PROFILO AGGIORNATA!*' }, { quoted: m });
-
+            await react('🤖');
+            return say('🤖 *FOTO PROFILO AGGIORNATA!*');
         } catch (e) {
-            console.error('[SETBOTPP]', e.message);
-            await sock.sendMessage(jid, { react: { text: '❌', key: m.key } });
-            return await sock.sendMessage(jid, { text: '❌ Errore aggiornamento foto profilo.' }, { quoted: m });
+            console.error('[SETBOTPP]', e);
+            await react('❌');
+            return say(`❌ Errore aggiornamento foto profilo: ${e.message}`);
         }
     }
 };

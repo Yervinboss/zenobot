@@ -49,13 +49,13 @@ function downloadAndConvert(trackUrl, timestamp) {
     return new Promise((resolve, reject) => {
         const inputMp3 = path.join(__dirname, `_temp_${timestamp}.mp3`);
         const outputOgg = path.join(__dirname, `_temp_${timestamp}.ogg`);
-        const yt_command = `yt-dlp -x --audio-format mp3 --audio-quality 128k --no-part --extractor-args youtube:player-client=android,web -o "${inputMp3}" "${safeUrl(trackUrl)}"`;
+        const yt_command = `yt-dlp -x --audio-format mp3 --audio-quality 0 --no-part --extractor-args youtube:player-client=android,web -o "${inputMp3}" "${safeUrl(trackUrl)}"`;
         exec(yt_command, (error) => {
             if (error || !fs.existsSync(inputMp3)) {
                 if (fs.existsSync(inputMp3)) fs.unlinkSync(inputMp3);
                 return reject(new Error('Download fallito'));
             }
-            const ffmpeg_command = `ffmpeg -y -i "${inputMp3}" -c:a libopus -b:a 64k -vbr on -compression_level 10 -ar 48000 -ac 1 -threads 0 -f ogg "${outputOgg}"`;
+            const ffmpeg_command = `ffmpeg -y -i "${inputMp3}" -c:a libopus -b:a 128k -vbr on -compression_level 10 -application audio -ar 48000 -ac 2 -threads 0 -f ogg "${outputOgg}"`;
             exec(ffmpeg_command, (err2) => {
                 if (fs.existsSync(inputMp3)) fs.unlinkSync(inputMp3);
                 if (err2 || !fs.existsSync(outputOgg)) {
@@ -124,7 +124,7 @@ async function mergePlaylist(sock, jid, sender, userTracks, m) {
     }
     fs.writeFileSync(metaFile, metaContent, 'utf8');
 
-    const mergeCmd = `ffmpeg -y -f concat -safe 0 -i "${listFile}" -i "${metaFile}" -map_metadata 1 -c:a aac -b:a 96k -ar 44100 -ac 2 -movflags +faststart "${finalM4a}"`;
+    const mergeCmd = `ffmpeg -y -f concat -safe 0 -i "${listFile}" -i "${metaFile}" -map_metadata 1 -c:a aac -b:a 128k -ar 44100 -ac 2 -movflags +faststart "${finalM4a}"`;
     exec(mergeCmd, async (err) => {
         fs.rmSync(sessionDir, { recursive: true, force: true });
         if (err || !fs.existsSync(finalM4a)) {
@@ -160,17 +160,22 @@ async function processQueue(sock, jid, sender) {
         return;
     }
     let track = queueData.tracks.shift();
+    try {
+        const n = queueData.total - queueData.tracks.length;
+        await sock.sendMessage(jid, { text: `▶️ *${n}/${queueData.total}* • _${String(track.title || 'Brano').substring(0, 50)}_` });
+    } catch (e) {}
     let timestamp = Date.now();
     let inputMp3 = path.join(__dirname, `_temp_pl_${timestamp}.mp3`);
-    let outputOgg = path.join(__dirname, `vocale_pl_${timestamp}.ogg`);
-    let yt_command = `yt-dlp -x --audio-format mp3 --audio-quality 128k --no-part --extractor-args youtube:player-client=android,web -o "${inputMp3}" "${safeUrl(track.url)}"`;
+    let outputOgg = path.join(__dirname, `vocale_pl_${timestamp}.m4a`);
+    let yt_command = `yt-dlp -x --audio-format mp3 --audio-quality 0 --no-part --extractor-args youtube:player-client=android,web -o "${inputMp3}" "${safeUrl(track.url)}" || yt-dlp -x --audio-format mp3 --audio-quality 0 --no-part -o "${inputMp3}" "${safeUrl(track.url)}"`;
 
-    exec(yt_command, async (error) => {
+    exec(yt_command, async (error, _so, _se) => {
+        if (error) console.error('❌ yt-dlp:', String(_se || error.message).slice(-600));
         if (error) {
             if (fs.existsSync(inputMp3)) fs.unlinkSync(inputMp3);
             return processQueue(sock, jid, sender);
         }
-        let ffmpeg_command = `ffmpeg -y -i "${inputMp3}" -c:a libopus -b:a 64k -vbr on -compression_level 10 -ar 48000 -ac 1 -threads 0 -f ogg "${outputOgg}"`;
+        let ffmpeg_command = `ffmpeg -y -i "${inputMp3}" -c:a aac -b:a 160k -ar 44100 -ac 2 -movflags +faststart -f ipod "${outputOgg}"`;
         exec(ffmpeg_command, async (err2) => {
             if (fs.existsSync(inputMp3)) fs.unlinkSync(inputMp3);
             if (err2 || !fs.existsSync(outputOgg)) {
@@ -183,7 +188,7 @@ async function processQueue(sock, jid, sender) {
             }
             try {
                 let audioBuffer = fs.readFileSync(outputOgg);
-                await sock.sendMessage(jid, { audio: audioBuffer, mimetype: 'audio/ogg; codecs=opus', ptt: true });
+                await sock.sendMessage(jid, { audio: audioBuffer, mimetype: 'audio/mp4', ptt: false, fileName: `${String(track.title || 'Zeno').replace(/[^\w\s.-]/g, '').trim().substring(0, 60) || 'Zeno'}.m4a` });
             } catch (e) { console.error(e); }
             finally {
                 if (fs.existsSync(outputOgg)) fs.unlinkSync(outputOgg);
@@ -197,14 +202,15 @@ async function playSingle(sock, jid, sender, track, m) {
     await sock.sendMessage(jid, { react: { text: '🎧', key: m.key } });
     let timestamp = Date.now();
     let inputMp3 = path.join(__dirname, `_temp_pl_${timestamp}.mp3`);
-    let outputOgg = path.join(__dirname, `vocale_pl_${timestamp}.ogg`);
-    let yt_command = `yt-dlp -x --audio-format mp3 --audio-quality 128k --no-part --extractor-args youtube:player-client=android,web -o "${inputMp3}" "${safeUrl(track.url)}"`;
-    exec(yt_command, async (error) => {
+    let outputOgg = path.join(__dirname, `vocale_pl_${timestamp}.m4a`);
+    let yt_command = `yt-dlp -x --audio-format mp3 --audio-quality 0 --no-part --extractor-args youtube:player-client=android,web -o "${inputMp3}" "${safeUrl(track.url)}" || yt-dlp -x --audio-format mp3 --audio-quality 0 --no-part -o "${inputMp3}" "${safeUrl(track.url)}"`;
+    exec(yt_command, async (error, _so, _se) => {
+        if (error) console.error('❌ yt-dlp:', String(_se || error.message).slice(-600));
         if (error) {
             if (fs.existsSync(inputMp3)) fs.unlinkSync(inputMp3);
             return await sock.sendMessage(jid, { text: '❌ Errore download.' }, { quoted: m });
         }
-        let ffmpeg_command = `ffmpeg -y -i "${inputMp3}" -c:a libopus -b:a 64k -vbr on -compression_level 10 -ar 48000 -ac 1 -threads 0 -f ogg "${outputOgg}"`;
+        let ffmpeg_command = `ffmpeg -y -i "${inputMp3}" -c:a aac -b:a 160k -ar 44100 -ac 2 -movflags +faststart -f ipod "${outputOgg}"`;
         exec(ffmpeg_command, async (err2) => {
             if (fs.existsSync(inputMp3)) fs.unlinkSync(inputMp3);
             if (err2 || !fs.existsSync(outputOgg)) {
@@ -213,7 +219,7 @@ async function playSingle(sock, jid, sender, track, m) {
             }
             try {
                 let audioBuffer = fs.readFileSync(outputOgg);
-                await sock.sendMessage(jid, { audio: audioBuffer, mimetype: 'audio/ogg; codecs=opus', ptt: true }, { quoted: m });
+                await sock.sendMessage(jid, { audio: audioBuffer, mimetype: 'audio/mp4', ptt: false, fileName: `${String(track.title || 'Zeno').replace(/[^\w\s.-]/g, '').trim().substring(0, 60) || 'Zeno'}.m4a` }, { quoted: m });
             } catch (e) { console.error(e); }
             finally { setTimeout(() => { if (fs.existsSync(outputOgg)) fs.unlinkSync(outputOgg); }, 5000); }
         });
@@ -243,7 +249,7 @@ async function askDelete(sock, jid, sender, m) {
     }, { quoted: m });
 }
 
-const allCommands = ['pl', 'pl_add', 'pl_all', 'pl_stop', 'pl_merge', 'pl_fusion', 'pl_del', 'pl_clear', 'pl_askdel'];
+const allCommands = ['pl', 'pl_add', 'pl_all', 'pl_stop', 'pl_merge', 'pl_fusion', 'pl_del', 'pl_clear', 'pl_askdel', 'pl_shuffle', 'pl_info', 'pl_help', 'pl_skip', 'pl_dedupe', 'pl_more', 'pl_export', 'pl_allshuffle'];
 for (let i = 0; i < 100; i++) {
     allCommands.push(`pl_select_${i}`);
     allCommands.push(`pl_del_${i}`);
@@ -280,6 +286,11 @@ module.exports = {
                 text: `🗑️ *Brano rimosso:*\n_${removed[0].title || 'Sconosciuto'}_\n\n📀 Rimasti: *${userTracks.length}* brani`,
                 mentions: [sender]
             }, { quoted: m });
+        }
+
+        {
+            const extra = require('../pl_extra.js');
+            if (await extra.handle({ sock, m, jid, sender, sub, rest, readDb, writeDb, playlistDbPath, yts, processQueue })) return;
         }
 
         if (sub === 'askdel') {
@@ -369,6 +380,7 @@ module.exports = {
                         let trackTitle = info.title || 'Brano importato';
                         if (trackUrl) {
                             if (!trackUrl.startsWith('http')) trackUrl = `https://www.youtube.com/watch?v=${info.id}`;
+                            if (plDb[sender].some(t => t.url === trackUrl) || plDb[sender].length >= 100) continue;
                             plDb[sender].push({ title: trackTitle, url: trackUrl });
                             addedTracks.push(trackTitle);
                         }
@@ -461,7 +473,8 @@ module.exports = {
                 { title: '🎛️ Fondi playlist', rowId: 'pl_merge', description: 'Un unico file con tutte le tracce' },
                 { title: '⏹️ Stop', rowId: 'pl_stop', description: 'Ferma la riproduzione' }
             ];
-            const PER = 5;
+            azioni.push({ title: '⚙️ Altre azioni', rowId: 'pl_more', description: 'Mischia, info, doppioni, esporta...' });
+            const PER = 4; // WhatsApp: max 10 righe per lista (4 azioni + 4 brani + 2 pagina)
             const pages = Math.max(1, Math.ceil(total / PER));
             if (page < 0) page = 0;
             if (page > pages - 1) page = pages - 1;

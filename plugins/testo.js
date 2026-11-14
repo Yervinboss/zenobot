@@ -1,239 +1,190 @@
-'use strict'
+const fs = require('fs');
+const path = require('path');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const yts = require('yt-search');
 
-// ZENO MUSIC — .testo <canzone o cantante>
-// Un unico messaggio: copertina + info + testo + bottone Riproduci
-// Fonti testi: lrclib.net (2 tentativi) -> riserva: Deezer + lyrics.ovh
+const run = promisify(execFile);
+const COMMANDS = ['testo', 'text', 'lyrics', 'testoplay'];
+const MAX_AUDIO = 16 * 1024 * 1024;
+const MAX_CHARS = 3500;
+const pending = new Map();
 
-const fs = require('fs')
-const path = require('path')
-const yts = require('yt-search')
-
-const dbPath = path.join(__dirname, '../zenomusic_db.json')
-const HEADERS = { 'User-Agent': 'ZenoBot/4.5 (WhatsApp bot)' }
-const CAPTION_MAX = 1000
-
-const sleep = (ms) => new Promise(r => setTimeout(r, ms))
-
-const readDb = () => {
-    if (!fs.existsSync(dbPath)) return {}
-    try { return JSON.parse(fs.readFileSync(dbPath, 'utf8')) || {} } catch { return {} }
-}
-const writeDb = (data) => {
-    const tmp = dbPath + '.tmp'
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8')
-    fs.renameSync(tmp, dbPath)
+async function getJson(url) {
+    const r = await fetch(url, { headers: { 'User-Agent': 'ZenoBot/1.0' }, signal: AbortSignal.timeout(15000) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
 }
 
-async function getJson(url, ms = 12000) {
-    const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(ms) })
-    if (!res.ok) throw new Error('HTTP ' + res.status)
-    return res.json()
-}
+const stripSynced = (s) => s.replace(/\[\d+:\d+(?:\.\d+)?\]\s?/g, '').trim();
 
-// fonte principale: lrclib, con un secondo tentativo
-async function lrclibSearch(q) {
-    let lastErr
-    for (let i = 0; i < 2; i++) {
-        try {
-            const list = await getJson(`https://lrclib.net/api/search?q=${encodeURIComponent(q)}`)
-            return (Array.isArray(list) ? list : [])
-                .filter(x => x && !x.instrumental && x.plainLyrics && x.plainLyrics.trim().length > 20)
-        } catch (e) {
-            lastErr = e
-            await sleep(900)
+async function getLyrics(query) {
+    try {
+        const data = await getJson(`https://lrclib.net/api/search?q=${encodeURIComponent(query)}`);
+        const song = data.find((s) => s.plainLyrics || s.syncedLyrics);
+        if (song) {
+            return {
+                lyrics: song.plainLyrics || stripSynced(song.syncedLyrics),
+                source: `${song.artistName} - ${song.trackName}`,
+            };
         }
+    } catch (e) { console.error('Errore LrcLib:', e.message); }
+
+    if (query.includes(' - ')) {
+        const [artist, ...rest] = query.split(' - ');
+        const a = artist.trim();
+        const t = rest.join(' - ').trim();
+        try {
+            const d = await getJson(`https://api.lyrics.ovh/v1/${encodeURIComponent(a)}/${encodeURIComponent(t)}`);
+            if (d.lyrics) return { lyrics: d.lyrics.trim(), source: `${a} - ${t}` };
+        } catch (e) { console.error('Errore Lyrics.ovh:', e.message); }
     }
-    throw lastErr
+    return null;
 }
 
-// riserva: Deezer (info + copertina) + lyrics.ovh (testo)
-async function fallbackSearch(q) {
-    const d = await getJson(`https://api.deezer.com/search?q=${encodeURIComponent(q)}&limit=5`)
-    const tracks = Array.isArray(d.data) ? d.data : []
-    for (const t of tracks) {
-        const artist = t.artist && t.artist.name
-        const title = t.title_short || t.title
-        if (!artist || !title) continue
+async function findYt(query) {
+    try {
+        const r = await yts(query);
+        const v = r.videos && r.videos[0];
+        if (v) return { id: v.videoId, title: v.title, thumb: v.thumbnail || v.image };
+    } catch (e) { console.error('Errore ricerca YT:', e.message); }
+    return null;
+}
+
+async function getCover(yt) {
+    const urls = [
+        `https://images.weserv.nl/?url=${encodeURIComponent(`i.ytimg.com/vi/${yt.id}/hqdefault.jpg`)}&w=500&h=500&fit=cover`,
+        yt.thumb,
+    ].filter(Boolean);
+    for (const u of urls) {
         try {
-            const l = await getJson(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`)
-            let lyr = l && l.lyrics ? String(l.lyrics) : ''
-            lyr = lyr.replace(/^Paroles de la chanson[^\n]*\n+/i, '').trim()
-            if (lyr.length > 20) {
-                return [{
-                    artistName: artist,
-                    trackName: title,
-                    albumName: t.album && t.album.title,
-                    duration: t.duration,
-                    plainLyrics: lyr,
-                    cover: t.album && (t.album.cover_xl || t.album.cover_big)
-                }]
-            }
+            const r = await fetch(u, { signal: AbortSignal.timeout(15000) });
+            if (r.ok) return Buffer.from(await r.arrayBuffer());
         } catch {}
     }
-    return []
+    return null;
 }
 
-async function searchLyrics(q) {
-    try {
-        const r = await lrclibSearch(q)
-        if (r.length) return r
-    } catch (e) {
-        console.error('[testo] lrclib:', e && e.message)
+function chunk(str, max = MAX_CHARS) {
+    const out = [];
+    let cur = '';
+    for (const line of str.split('\n')) {
+        if (cur && cur.length + line.length + 1 > max) { out.push(cur); cur = line; }
+        else cur = cur ? cur + '\n' + line : line;
     }
-    return fallbackSearch(q)
+    if (cur) out.push(cur);
+    return out;
 }
 
-async function getCover(artist, title) {
-    try {
-        const d = await getJson(`https://itunes.apple.com/search?term=${encodeURIComponent(artist + ' ' + title)}&entity=song&limit=1`, 9000)
-        const u = d.results && d.results[0] && d.results[0].artworkUrl100
-        return u ? u.replace('100x100bb', '600x600bb') : null
-    } catch { return null }
-}
-
-const fmtDur = (s) => {
-    s = Math.round(Number(s) || 0)
-    return s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '?'
-}
-
-function cutLyrics(text, max) {
-    const clean = text.replace(/\r/g, '').trim().replace(/\n{3,}/g, '\n\n')
-    if (clean.length <= max) return { text: clean, cut: false }
-    let part = clean.slice(0, max)
-    const nl = part.lastIndexOf('\n')
-    if (nl > max * 0.5) part = part.slice(0, nl)
-    return { text: part.trim(), cut: true }
+async function downloadAudio(id) {
+    const base = path.join(__dirname, `testo_${id}_${Date.now()}`);
+    await run('yt-dlp', [
+        '--no-playlist', '-q', '--no-warnings', '--no-progress',
+        '-x', '--audio-format', 'mp3', '--audio-quality', '128K',
+        '--extractor-args', 'youtube:player-client=android,web',
+        '-o', `${base}.%(ext)s`, `https://www.youtube.com/watch?v=${id}`,
+    ], { timeout: 5 * 60 * 1000, maxBuffer: 10 * 1024 * 1024 });
+    const file = `${base}.mp3`;
+    if (!fs.existsSync(file)) throw new Error('file non generato');
+    return file;
 }
 
 module.exports = {
-    name: 'testo',
-    commands: ['testo', 'lyrics'],
-    category: 'musica',
-    description: 'Testo di una canzone con copertina e pulsante per riprodurla',
-    usage: '<canzone o cantante>',
-    author: 'ZENO',
+    commands: COMMANDS,
+    run: async (sock, m) => {
+        const chatId = m.key.remoteJid;
+        const sender = m.key.participant || m.participant || chatId;
+        const text = m.message?.conversation || m.message?.extendedTextMessage?.text || '';
+        const buttonId =
+            m.message?.buttonsResponseMessage?.selectedButtonId ||
+            m.message?.templateButtonReplyMessage?.selectedId ||
+            m.msg?.selectedButtonId || '';
 
-    async run(sock, m, args, cmd, ctx) {
-        const chatId = m.key.remoteJid
-        const sender = m.key.participant || m.participant || chatId
-        const P = (ctx && ctx.prefix) || '.'
+        const say = (t) => sock.sendMessage(chatId, { text: t }, { quoted: m });
+        const react = (e) => sock.sendMessage(chatId, { react: { text: e, key: m.key } }).catch(() => {});
 
-        const reply = (c) => (ctx && typeof ctx.reply === 'function')
-            ? ctx.reply(c)
-            : sock.sendMessage(chatId, typeof c === 'string' ? { text: c } : c, { quoted: m })
-        const err = (t) => (ctx && typeof ctx.err === 'function') ? ctx.err(t) : reply(t)
-        const react = (emoji) => sock.sendMessage(chatId, { react: { text: emoji, key: m.key } }).catch(() => {})
+        let action = 'testo';
+        let query = '';
+        if (buttonId) {
+            action = buttonId.trim().toLowerCase();
+        } else {
+            const parts = text.trim().replace(/^[.!\/#]/, '').split(/\s+/);
+            const first = (parts[0] || '').toLowerCase();
+            if (COMMANDS.includes(first)) { action = first; query = parts.slice(1).join(' '); }
+            else query = text.trim();
+        }
 
-        let query = (Array.isArray(args) ? args.join(' ') : '').trim()
+        // ───── PULSANTE RIPRODUCI ─────
+        if (action === 'testoplay') {
+            const track = pending.get(sender) || pending.get(chatId);
+            if (!track) return say('❌ Cerca prima un testo con `.testo artista - titolo`.');
+            await react('⏳');
+            let file = null, ogg = null;
+            try {
+                file = await downloadAudio(track.id);
+                ogg = file + '.ogg';
+                await run('ffmpeg', ['-y', '-i', file, '-c:a', 'libopus', '-b:a', '128k', '-ar', '48000', '-ac', '1', '-f', 'ogg', ogg]);
+                if (fs.statSync(file).size > MAX_AUDIO) return say('❌ Il file è troppo grande per WhatsApp.');
+                await sock.sendMessage(chatId, {
+                    audio: fs.readFileSync(ogg),
+                    mimetype: 'audio/ogg; codecs=opus',
+                    ptt: true,
+                    fileName: `${track.title}.mp3`,
+                }, { quoted: m });
+                await react('✅');
+            } catch (e) {
+                console.error('Errore download testoplay:', e.stderr || e.message);
+                await react('❌');
+                await say('❌ Errore durante il download.');
+            } finally {
+                if (file && fs.existsSync(file)) fs.unlinkSync(file);
+                if (ogg && fs.existsSync(ogg)) fs.unlinkSync(ogg);
+            }
+            return;
+        }
+
+        // ───── RICERCA TESTO ─────
         if (!query) {
-            const last = readDb()[sender]
-            if (last && typeof last === 'object' && last.title) query = last.title
-        }
-        if (!query) return err(`Scrivi il nome della canzone o del cantante!\nEsempio: *${P}testo bistia 18K*`)
-
-        await react('🔎')
-
-        let results
-        try { results = await searchLyrics(query) } catch (e) {
-            console.error('[testo] ricerca:', e && e.message)
-            return err('Il servizio dei testi non risponde, riprova tra poco.')
-        }
-        if (!results.length) return err(`Nessun testo trovato per: *${query}*\nProva con "artista - titolo".`)
-
-        const best = results[0]
-        const artist = best.artistName || 'Sconosciuto'
-        const title = best.trackName || query
-
-        const [cover, vres] = await Promise.all([
-            best.cover || getCover(artist, title),
-            yts(`${artist} ${title}`).catch(() => null)
-        ])
-        const vid = vres && vres.videos && vres.videos[0]
-        const image = cover || (vid && vid.thumbnail) || null
-
-        const header =
-            `🎤 *${title}*\n` +
-            `👤 ${artist}\n` +
-            (best.albumName ? `💿 ${best.albumName}\n` : '') +
-            `⏱ ${fmtDur(best.duration)}\n\n` +
-            `📝 *Testo*\n\n`
-        const suffix = '\n\n_… continua sotto 👇_'
-        const room = CAPTION_MAX - header.length - suffix.length
-
-        // testo normalizzato: parte nella didascalia + resto in messaggi separati
-        const clean = best.plainLyrics.replace(/\r/g, '').trim().replace(/\n{3,}/g, '\n\n')
-        const lyr = cutLyrics(clean, Math.max(room, 200))
-        const caption = header + lyr.text + (lyr.cut ? suffix : '')
-
-        const restChunks = []
-        if (lyr.cut) {
-            let rest = clean.slice(lyr.text.length).trim()
-            while (rest.length) {
-                if (rest.length <= 3000) { restChunks.push(rest); break }
-                let cut = rest.lastIndexOf('\n\n', 3000)
-                if (cut < 1000) cut = rest.lastIndexOf('\n', 3000)
-                if (cut < 1000) cut = 3000
-                restChunks.push(rest.slice(0, cut).trim())
-                rest = rest.slice(cut).trim()
-            }
+            return say('📝 *CERCA TESTO CANZONE*\n\n📌 Uso: `.testo artista - titolo`\n📎 Esempio: `.testo Sfera Ebbasta - Visiera H`');
         }
 
-        let canPlay = false
-        if (vid) {
-            try {
-                const db = readDb()
-                db[sender] = {
-                    url: vid.url,
-                    title: vid.title,
-                    duration: vid.timestamp,
-                    seconds: vid.seconds,
-                    author: vid.author && vid.author.name,
-                    thumbnail: vid.thumbnail
-                }
-                writeDb(db)
-                canPlay = true
-            } catch (e) { console.error('[testo] db:', e && e.message) }
-        }
-
-        const buttons = canPlay
-            ? [{ buttonId: 'sendnormal', buttonText: { displayText: '🎵 Riproduci' }, type: 1 }]
-            : undefined
-
-        // 1) copertina + info + inizio testo + bottone
+        await react('🔍');
         try {
-            if (image) {
-                await sock.sendMessage(chatId, {
-                    image: { url: image },
-                    caption,
-                    footer: '⚡ Zeno Bot - Music Player',
-                    ...(buttons ? { buttons, headerType: 4 } : {})
-                }, { quoted: m })
+            const [result, yt] = await Promise.all([getLyrics(query), findYt(query)]);
+            if (!result || !result.lyrics) {
+                await react('❌');
+                return say(`❌ Testo non trovato per: "${query}"`);
+            }
+
+            const caption = `📝 *TESTO*\n🎵 ${result.source}`;
+            if (yt) {
+                if (pending.size > 200) pending.delete(pending.keys().next().value);
+                pending.set(sender, { id: yt.id, title: yt.title });
+                pending.set(chatId, { id: yt.id, title: yt.title });
+
+                const buttons = [{ buttonId: 'testoplay', buttonText: { displayText: '🎵 Riproduci' }, type: 1 }];
+                const img = await getCover(yt);
+                if (img) {
+                    await sock.sendMessage(chatId, {
+                        image: img, caption, footer: `🎵 ${yt.title}`, buttons, headerType: 4,
+                    }, { quoted: m });
+                } else {
+                    await sock.sendMessage(chatId, {
+                        text: caption, footer: `🎵 ${yt.title}`, buttons, headerType: 1,
+                    }, { quoted: m });
+                }
             } else {
-                await sock.sendMessage(chatId, {
-                    text: caption,
-                    footer: '⚡ Zeno Bot - Music Player',
-                    ...(buttons ? { buttons, headerType: 1 } : {})
-                }, { quoted: m })
+                await say(caption);
             }
+
+            for (const part of chunk(result.lyrics)) {
+                await sock.sendMessage(chatId, { text: part });
+            }
+            await react('✅');
         } catch (e) {
-            console.error('[testo] invio:', e && e.message)
-            try {
-                if (image) await sock.sendMessage(chatId, { image: { url: image }, caption }, { quoted: m })
-                else await reply(caption)
-                if (canPlay) await reply(`🎧 Per ascoltarla scrivi *${P}sendnormal*`)
-            } catch (e2) {
-                console.error('[testo] fallback:', e2 && e2.message)
-                await react('❌')
-                return err('Errore durante l\'invio del testo.')
-            }
+            console.error('Errore testo:', e);
+            await react('❌');
+            await say('❌ Errore nella ricerca del testo.');
         }
-
-        // 2) resto del testo
-        for (const chunk of restChunks) {
-            try { await sock.sendMessage(chatId, { text: chunk }) }
-            catch (e) { console.error('[testo] resto:', e && e.message); break }
-        }
-
-        await react('✅')
     }
-}
+};

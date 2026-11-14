@@ -55,6 +55,13 @@ async function getSmallThumb(sock, user) {
     } catch { return null; }
 }
 
+function fillWelcome(tpl, user, groupName, count) {
+    return (String(tpl).includes('{utente}') ? '' : '@' + pureId(user) + '\n') + String(tpl)
+        .split('{utente}').join('@' + pureId(user))
+        .split('{gruppo}').join(groupName)
+        .split('{membri}').join(String(count));
+}
+
 async function sendWelcomeCard(sock, jid, user) {
     const meta = await sock.groupMetadata(jid);
     const count = meta.participants.length;
@@ -62,7 +69,8 @@ async function sendWelcomeCard(sock, jid, user) {
 
     const thumb = await getSmallThumb(sock, user);
 
-    const loc = { name: '𝐁𝐞𝐧𝐯𝐞𝐧𝐮𝐭𝐨 👋' };
+    const cfg = (typeof getDB()[jid] === 'object' && getDB()[jid]) || {};
+    const loc = { name: cfg.title ||'𝐁𝐞𝐧𝐯𝐞𝐧𝐮𝐭𝐨 👋' };
     if (thumb) loc.jpegThumbnail = thumb;
 
     const card = {
@@ -79,7 +87,7 @@ async function sendWelcomeCard(sock, jid, user) {
         `『 ${groupName} 』\n\n` +
         `👥 Ora siete in *${count}*`;
 
-    await sock.sendMessage(jid, { text: caption, mentions: [user] }, { quoted: card });
+    await sock.sendMessage(jid, { text: cfg.text ? fillWelcome(cfg.text, user, groupName, count) : caption, mentions: [user] }, { quoted: card });
 }
 
 async function sendWelcomeBatch(sock, jid, users, force = false) {
@@ -131,11 +139,11 @@ function registerJoinListener(sock) {
 }
 
 module.exports = {
-    commands: ['welcome', 'testwelcome'],
+    commands: ['welcome', 'testwelcome', 'setwelcome', 'setwelcometitolo', 'resetwelcome'],
 
     hook: async (sock) => { registerJoinListener(sock); },
 
-    run: async (sock, m, args, cmd) => {
+    run: async (sock, m, args, cmd, ctx) => {
         const jid = m.key.remoteJid;
         const sender = m.key.participant || jid;
 
@@ -152,7 +160,7 @@ module.exports = {
         if (cmd === 'welcome') {
             const action = (args[0] || '').toLowerCase();
             if (action === 'on' || action === 'off') {
-                db[jid] = { enabled: action === 'on' };
+                db[jid] = { ...(typeof db[jid] === 'object' ? db[jid] : {}), enabled: action === 'on' };
                 saveDB(db);
                 await sock.sendMessage(jid, { react: { text: action === 'on' ? '✅' : '🔕', key: m.key } });
                 return await sock.sendMessage(jid, {
@@ -161,8 +169,27 @@ module.exports = {
             }
             return await sock.sendMessage(jid, {
                 text: `👋 *WELCOME*\n\nStato: ${isEnabled(db, jid) ? 'ATTIVO ✅' : 'Disattivato 🔕'}\n\n` +
-                      `\`.welcome on\` / \`.welcome off\`\n\`.testwelcome\``
+                      `\`.welcome on\` / \`.welcome off\`\n\`.testwelcome\`\n\n✏️ *Personalizza*\n\`.setwelcome <testo>\`\n\`.setwelcometitolo <testo>\`\n\`.resetwelcome\`\nVariabili: {utente} {gruppo} {membri}`
             }, { quoted: m });
+        }
+
+        if (cmd === 'setwelcome' || cmd === 'setwelcometitolo') {
+            const txt = String((ctx && ctx.argsText) || args.join(' ')).trim();
+            const field = cmd === 'setwelcome' ? 'text' : 'title';
+            if (!txt)
+                return await sock.sendMessage(jid, {
+                    text: '✏️ Scrivi il testo dopo il comando.\nVariabili: {utente} {gruppo} {membri}\nEsempio:\n.setwelcome Ciao {utente}, benvenuto in {gruppo}! Siamo in {membri} 🎉'
+                }, { quoted: m });
+            db[jid] = { ...(typeof db[jid] === 'object' ? db[jid] : { enabled: true }), [field]: txt.slice(0, 700) };
+            saveDB(db);
+            return await sock.sendMessage(jid, { text: '✅ Salvato. Provalo con .testwelcome' }, { quoted: m });
+        }
+
+        if (cmd === 'resetwelcome') {
+            const cur = typeof db[jid] === 'object' ? db[jid] : {};
+            db[jid] = { enabled: cur.enabled !== false };
+            saveDB(db);
+            return await sock.sendMessage(jid, { text: '♻️ Benvenuto ripristinato a quello originale.' }, { quoted: m });
         }
 
         if (cmd === 'testwelcome') {
