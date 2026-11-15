@@ -15,10 +15,15 @@ async function isAdminOld(sock, jid, sender) {
 }
 
 async function downloadMedia(mediaMessage, type) {
-    const stream = await downloadContentFromMessage(mediaMessage, type);
-    let buffer = Buffer.from([]);
-    for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
-    return buffer;
+    try {
+        const stream = await downloadContentFromMessage(mediaMessage, type);
+        let buffer = Buffer.from([]);
+        for await (const chunk of stream) buffer = Buffer.concat([buffer, chunk]);
+        return buffer;
+    } catch (e) {
+        console.log('[TAG] media non scaricabile:', e.message);
+        return null;
+    }
 }
 
 module.exports = {
@@ -56,6 +61,7 @@ module.exports = {
                 // Sticker quotato
                 if (actual.stickerMessage) {
                     const buffer = await downloadMedia(actual.stickerMessage, 'sticker');
+                    if (!buffer) return await sock.sendMessage(jid, { text: '📢 ' + (args.join(' ').trim() || 'Tag a tutti'), mentions: allParticipants });
                     return await sock.sendMessage(jid, {
                         sticker: buffer,
                         contextInfo: { mentionedJid: allParticipants }
@@ -66,6 +72,7 @@ module.exports = {
                 if (actual.imageMessage) {
                     const imgMsg = actual.imageMessage;
                     const buffer = await downloadMedia(imgMsg, 'image');
+                    if (!buffer) return await sock.sendMessage(jid, { text: '📢 ' + (args.join(' ').trim() || 'Tag a tutti'), mentions: allParticipants });
                     return await sock.sendMessage(jid, {
                         image: buffer,
                         caption: imgMsg.caption || '',
@@ -78,6 +85,7 @@ module.exports = {
                 if (actual.videoMessage) {
                     const vidMsg = actual.videoMessage;
                     const buffer = await downloadMedia(vidMsg, 'video');
+                    if (!buffer) return await sock.sendMessage(jid, { text: '📢 ' + (args.join(' ').trim() || 'Tag a tutti'), mentions: allParticipants });
                     return await sock.sendMessage(jid, {
                         video: buffer,
                         caption: vidMsg.caption || '',
@@ -90,6 +98,7 @@ module.exports = {
                 if (actual.audioMessage) {
                     const audioMsg = actual.audioMessage;
                     const buffer = await downloadMedia(audioMsg, 'audio');
+                    if (!buffer) return await sock.sendMessage(jid, { text: '📢 ' + (args.join(' ').trim() || 'Tag a tutti'), mentions: allParticipants });
                     return await sock.sendMessage(jid, {
                         audio: buffer,
                         mimetype: audioMsg.mimetype || 'audio/ogg; codecs=opus',

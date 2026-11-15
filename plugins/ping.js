@@ -33,7 +33,7 @@ function cleanSessions() {
 }
 
 module.exports = {
-    commands: ['ping', 'stats', 'status', 'clean', 'pulisci', 'clearsessions', 'sessioni'],
+    commands: ['ping', 'stats', 'clean', 'pulisci', 'clearsessions', 'sessioni'],
 
     run: async (sock, m, args, cmd) => {
         const jid = m.key.remoteJid;

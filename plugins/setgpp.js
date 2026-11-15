@@ -1,5 +1,4 @@
 // ZENO ULTIMATE — .setgpp : cambia la foto profilo del gruppo
-// Uso: rispondi a una foto con .setgpp (oppure manda la foto con .setgpp in didascalia)
 const fs = require('fs')
 const path = require('path')
 const { execFile } = require('child_process')
@@ -7,7 +6,7 @@ const { promisify } = require('util')
 
 const run = promisify(execFile)
 
-const LIBS = ['@itsliaaa/baileys', '@realvare/baileys', '@chatunity/baileys', '@whiskeysockets/baileys', 'baileys']
+const LIBS = ['@itsliaaa/baileys', '@chatunity/baileys', '@whiskeysockets/baileys', 'baileys']
 let dl = null
 async function getDownloader() {
     if (dl) return dl
@@ -28,18 +27,20 @@ const unwrap = (x) =>
     x?.documentWithCaptionMessage?.message || x
 
 async function squareJpg(buf) {
-    const inp = path.join(__dirname, `gpp_${Date.now()}.in`)
-    const out = path.join(__dirname, `gpp_${Date.now()}.jpg`)
+    const stamp = Date.now()
+    const inp = path.join(__dirname, `gpp_${stamp}.in`)
+    const out = path.join(__dirname, `gpp_${stamp}.jpg`)
     try {
         fs.writeFileSync(inp, buf)
-        await run('ffmpeg', ['-y', '-i', inp, '-vf', "crop='min(iw,ih)':'min(iw,ih)',scale=640:640", '-frames:v', '1', out], { timeout: 60000 })
+        await run('ffmpeg', ['-y', '-i', inp, '-vf', "crop='min(iw,ih)':'min(iw,ih)',scale=640:640", '-frames:v', '1', '-q:v', '3', out], { timeout: 60000 })
         return fs.readFileSync(out)
-    } catch (e) {
-        console.error('[SETGPP] ffmpeg:', e.message)
-        return buf
     } finally {
         for (const f of [inp, out]) { try { if (fs.existsSync(f)) fs.unlinkSync(f) } catch {} }
     }
+}
+
+async function setGroupPicture(sock, groupJid, img) {
+    await sock.updateProfilePicture(groupJid, img)
 }
 
 module.exports = {
@@ -56,8 +57,6 @@ module.exports = {
         const jid = m.key.remoteJid
         const say = (t) => sock.sendMessage(jid, { text: t }, { quoted: m })
         const react = (e) => sock.sendMessage(jid, { react: { text: e, key: m.key } }).catch(() => {})
-
-        if (!jid.endsWith('@g.us')) return say('❌ Questo comando funziona solo nei gruppi.')
 
         const msg = unwrap(unwrap(m.message)) || {}
         const ci = msg.extendedTextMessage?.contextInfo || msg.imageMessage?.contextInfo || {}
@@ -77,7 +76,7 @@ module.exports = {
             if (!buffer.length) throw new Error('download vuoto')
 
             const photo = await squareJpg(buffer)
-            await sock.updateProfilePicture(jid, photo)
+            await setGroupPicture(sock, jid, photo)
             await react('✅')
             return say('✅ *Foto del gruppo aggiornata!*')
         } catch (e) {

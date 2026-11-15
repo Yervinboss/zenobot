@@ -5,14 +5,13 @@
 //  .vv cache on | off   (owner) salvataggio temporaneo automatico
 
 const fs = require('fs')
-const os = require('os')
 const path = require('path')
 const { isOwner } = require('../lib/owner')
 const { pureId } = require('../lib/utils')
 
-const CACHE_DIR = path.join(os.tmpdir(), 'zeno_vv')
+const CACHE_DIR = path.join(__dirname, '../database/vv_cache')
 const CFG_PATH = path.join(__dirname, '../database/vv.json')
-const TTL_MS = 2 * 60 * 60 * 1000   // le copie durano 2 ore
+const TTL_MS = 2 * 60 * 60 * 1000
 const MAX_ITEMS = 60
 const MAX_BYTES = 40 * 1024 * 1024
 
@@ -35,7 +34,7 @@ function setCache(v) {
     fs.writeFileSync(CFG_PATH, JSON.stringify(CFG, null, 2), 'utf8')
 }
 
-// ── download (con la stessa libreria del socket) ──
+// ── download ──
 let BAILEYS = null
 function baileys() {
     if (BAILEYS) return BAILEYS
@@ -47,25 +46,27 @@ function baileys() {
     }
     throw new Error('libreria Baileys non trovata')
 }
+
 async function download(node, type) {
     const stream = await baileys().downloadContentFromMessage(node, type)
     const chunks = []
     for await (const c of stream) chunks.push(c)
     return Buffer.concat(chunks)
 }
-async function downloadRetry(node, type) {
+
+async function downloadRetry(node, type, tries = 3) {
     let err
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < tries; i++) {
         try {
             const b = await download(node, type)
             if (b.length) return b
         } catch (e) { err = e }
-        await new Promise(r => setTimeout(r, 700))
+        if (i < tries - 1) await new Promise(r => setTimeout(r, 800 * (i + 1)))
     }
     throw err || new Error('file vuoto')
 }
 
-// ── lettura dei messaggi (anche annidati) ──
+// ── lettura messaggi ──
 const WRAPPERS = ['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'viewOnceMessageV2Extension', 'documentWithCaptionMessage', 'editedMessage']
 function unwrap(msg) {
     let cur = msg || {}
@@ -101,8 +102,10 @@ function contextOf(msg) {
     return {}
 }
 
-// ── copie temporanee su disco ──
+// ── cache su disco ──
 let INDEX = null
+const PENDING = new Map()
+
 const safeId = (id) => String(id).replace(/[^A-Za-z0-9_-]/g, '_')
 const binPath = (id) => path.join(CACHE_DIR, safeId(id) + '.bin')
 const metaPath = (id) => path.join(CACHE_DIR, safeId(id) + '.json')
@@ -119,7 +122,7 @@ function loadIndex() {
                 if (meta && meta.id && fs.existsSync(binPath(meta.id))) INDEX.set(meta.id, meta)
             } catch {}
         }
-    } catch {}
+    } catch (e) { console.error('[VV] loadIndex:', e && e.message) }
     return INDEX
 }
 function forget(id) {
@@ -143,6 +146,7 @@ function remember(id, buffer, info) {
     purge()
 }
 function readCached(id) {
+    if (!id) return null
     const meta = loadIndex().get(id)
     if (!meta) return null
     if (Date.now() - meta.ts > TTL_MS) { forget(id); return null }
@@ -160,25 +164,40 @@ if (!global.__zenoVvTimer) {
 // ── hook: salva la visualizzazione singola appena arriva ──
 async function hook(sock, m) {
     try {
-        if (!m.message || !m.key || !m.key.id || m.key.fromMe) return
+        if (!m.message || !m.key || !m.key.id) return
         const f = mediaOf(m.message)
-        if (!f || !f.viewOnce || !cacheOn()) return
+        if (!f || !f.viewOnce) return
+        if (!cacheOn()) return
         const id = m.key.id
         if (loadIndex().has(id)) return
-        if (!f.node.mediaKey) return
+        if (PENDING.has(id)) return
+        if (!f.node.mediaKey) {
+            console.warn('[VV] view-once senza mediaKey:', id)
+            return
+        }
         const len = f.node.fileLength
         const size = Number(len && len.toString ? len.toString() : len) || 0
         if (size > MAX_BYTES) return
-        const buffer = await downloadRetry(f.node, f.type)
-        if (buffer.length > MAX_BYTES) return
-        remember(id, buffer, {
-            type: f.type,
-            mimetype: f.node.mimetype || '',
-            caption: f.node.caption || '',
-            ptt: !!f.node.ptt,
-            from: m.key.participant || m.key.remoteJid
-        })
-    } catch {}
+
+        const promise = (async () => {
+            try {
+                const buffer = await downloadRetry(f.node, f.type)
+                if (buffer.length > MAX_BYTES) return
+                remember(id, buffer, {
+                    type: f.type,
+                    mimetype: f.node.mimetype || '',
+                    caption: f.node.caption || '',
+                    ptt: !!f.node.ptt,
+                    from: m.key.participant || m.key.remoteJid
+                })
+                console.log('[VV] salvata visualizzazione singola:', id, f.type)
+            } catch (e) {
+                console.error('[VV] hook download fallito:', id, e && e.message)
+            }
+        })()
+        PENDING.set(id, promise)
+        try { await promise } finally { PENDING.delete(id) }
+    } catch (e) { console.error('[VV] hook:', e && e.message) }
 }
 
 // ── comando ──
@@ -225,17 +244,25 @@ module.exports = {
         try {
             let buffer = null
             let meta = null
+            const lookupId = stanzaId || m.key.id
 
-            // 1) copia salvata quando il messaggio è arrivato
-            const hit = readCached(stanzaId || m.key.id)
+            // 1) copia salvata (se il salvataggio è ancora in corso, lo aspetto)
+            let hit = readCached(lookupId)
+            if (!hit && PENDING.has(lookupId)) {
+                await Promise.race([
+                    PENDING.get(lookupId),
+                    new Promise(r => setTimeout(r, 12000))
+                ])
+                hit = readCached(lookupId)
+            }
             if (hit) { buffer = hit.buffer; meta = hit.meta }
 
-            // 2) download diretto, poi richiesta di nuovo upload
+            // 2) download diretto di riserva
             if (!buffer) {
                 const f = fromQuote || (self && self.viewOnce ? self : null)
                 if (!f) {
                     await react('❌')
-                    return say(panel('❌ *VV*', ['Il messaggio non contiene foto,', 'video o audio a visualizzazione singola.']))
+                    return say(panel('❌ *VV*', ['Il bot non ha una copia di questo', 'messaggio. Le prossime le salvo io.']))
                 }
                 meta = {
                     type: f.type,
@@ -245,7 +272,9 @@ module.exports = {
                     from: info.participant || sender
                 }
                 if (f.node.mediaKey) {
-                    try { buffer = await downloadRetry(f.node, f.type) } catch {}
+                    try { buffer = await downloadRetry(f.node, f.type) } catch (e) {
+                        console.error('[VV] download diretto fallito:', e && e.message)
+                    }
                     if (!buffer && stanzaId && typeof sock.updateMediaMessage === 'function') {
                         try {
                             const fresh = await sock.updateMediaMessage({
@@ -253,8 +282,10 @@ module.exports = {
                                 message: quoted
                             })
                             const f2 = fresh && fresh.message ? mediaOf(fresh.message) : null
-                            if (f2) buffer = await download(f2.node, f2.type)
-                        } catch {}
+                            if (f2) buffer = await downloadRetry(f2.node, f2.type)
+                        } catch (e) {
+                            console.error('[VV] updateMediaMessage fallito:', e && e.message)
+                        }
                     }
                 }
             }
@@ -268,8 +299,14 @@ module.exports = {
                 ]))
             }
 
-            const tag = meta.from ? `👁️ _VV • @${pureId(meta.from)}_` : ''
-            const mentions = meta.from ? [meta.from] : []
+            const fromJid = meta.from || ''
+            let displayId = ''
+            if (fromJid) {
+                if (fromJid.endsWith('@lid')) displayId = fromJid.split('@')[0]
+                else displayId = pureId(fromJid) || fromJid.split('@')[0]
+            }
+            const tag = displayId ? `👁️ _VV • @${displayId}_` : ''
+            const mentions = fromJid ? [fromJid] : []
             const caption = [meta.caption, tag].filter(Boolean).join('\n\n')
 
             if (meta.type === 'image') {
