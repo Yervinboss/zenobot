@@ -6,8 +6,8 @@ const path = require('path');
 let Webp = null;
 try { Webp = require('node-webpmux'); } catch {}
 
-const PACK = 'ZENO ULTIMATE';
-const AUTHOR = 'Zeno Bot';
+const PACK = 'ZEUS ULTIMATE';
+const AUTHOR = 'Zeus Bot';
 const MAX_STATIC = 95 * 1024;
 const MAX_ANIM = 480 * 1024;
 
@@ -17,7 +17,7 @@ async function addExif(buf) {
         const img = new Webp.Image();
         await img.load(buf);
         const json = {
-            'sticker-pack-id': 'zeno-' + Date.now(),
+            'sticker-pack-id': 'zeus-' + Date.now(),
             'sticker-pack-name': PACK,
             'sticker-pack-publisher': AUTHOR,
             emojis: ['😀']

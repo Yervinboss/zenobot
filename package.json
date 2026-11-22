@@ -1,5 +1,5 @@
 {
-  "name": "zeno-ultimate",
+  "name": "zeus-ultimate",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -12,6 +12,7 @@
   "license": "ISC",
   "dependencies": {
     "@hapi/boom": "^10.0.1",
+    "@innovatorssoft/baileys": "^7.4.11",
     "@itsliaaa/baileys": "^0.3.18-final",
     "@napi-rs/canvas": "^1.1.0",
     "@napi-rs/image": "^1.16.0",
@@ -21,7 +22,7 @@
     "discord.js": "^14.27.0",
     "dotenv": "^18.0.9",
     "fluent-ffmpeg": "^2.1.3",
-    "jimp": "^1.6.1",
+    "jimp": "^0.22.12",
     "node-cache": "^5.1.2",
     "node-shazam": "^1.2.7",
     "node-webpmux": "^3.2.1",

@@ -14,7 +14,7 @@ module.exports = {
         await sock.sendMessage(jid, { react: { text: '💉', key: m.key } });
 
         let msg = await sock.sendMessage(jid, {
-            text: `🛰️ [ZENO GUARD]: Acquisizione IP in corso su @${targetId}...`,
+            text: `🛰️ [ZEUS GUARD]: Acquisizione IP in corso su @${targetId}...`,
             mentions: [targetJid]
         }, { quoted: m });
         await delay(1200);
@@ -53,7 +53,7 @@ module.exports = {
                 message: {
                     interactiveMessage: {
                         body: { text: bodyText },
-                        footer: { text: 'Zeno Cyber-Security ⚙️' },
+                        footer: { text: 'Zeus Cyber-Security ⚙️' },
                         nativeFlowMessage: {
                             buttons: [{
                                 name: 'cta_url',

@@ -350,7 +350,7 @@ module.exports = {
             `🔗 *GESTIONE ANTILINK*\n\nStato: *${status}*\nWhitelist: TikTok, Instagram, YouTube${extra ? ` (+${extra})` : ''}\n` +
             `Protegge da: link anche offuscati, inviti, redirect, modifiche e messaggi crash\n\n` +
             `_.antilink wl add/del <dominio> · .antilink max <n> · .antilink log · .antilink strict on/off_\n\nScegli:`,
-            'Zeno Bot - Moderazione',
+            'Zeus Bot - Moderazione',
             [
                 { text: '🦵 Modalità Kick', id: 'antilinkkick' },
                 { text: '⚠️ Modalità Warn', id: 'antilinkwarn' },

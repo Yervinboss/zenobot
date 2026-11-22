@@ -70,7 +70,7 @@ module.exports = {
             }));
             return await sock.sendMessage(jid, {
                 text: '🎰 Scegli quanto vuoi puntare:',
-                footer: 'Zeno Bot - Slot Machine',
+                footer: 'Zeus Bot - Slot Machine',
                 buttons, headerType: 1
             }, { quoted: m });
         }

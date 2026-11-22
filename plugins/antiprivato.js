@@ -4,14 +4,14 @@ module.exports = {
     commands: ['antiprivato', 'antipv'],
     name: 'antiprivato',
     category: 'sistema',
-    author: 'ZENO',
+    author: 'ZEUS',
     description: 'Blocca l\'uso dei comandi nelle chat private',
     usage: '[on|off]',
     ownerOnly: true,
 
     // Questo hook intercetta OGNI messaggio prima che venga processato
     async onMessage(sock, m) {
-        const db = global.ZENO?.db;
+        const db = global.ZEUS?.db;
         if (!db) return;
 
         const antiPrivato = db.settings.get('antiprivato', false);
@@ -23,19 +23,19 @@ module.exports = {
 
         // Controlla se è un comando (inizia con un prefisso)
         const text = m.message?.conversation || m.message?.extendedTextMessage?.text || '';
-        const prefix = global.ZENO?.CONFIG?.prefix || '.';
+        const prefix = global.ZEUS?.CONFIG?.prefix || '.';
         if (!text.startsWith(prefix)) return;
 
         // Controlla se è l'owner
         const sender = m.key.participant || m.key.remoteJid;
         const cleanSender = String(sender).split('@')[0].split(':')[0].replace(/[^0-9]/g, '');
-        const ownerNumber = global.ZENO?.CONFIG?.numero || '';
+        const ownerNumber = global.ZEUS?.CONFIG?.numero || '';
         
         if (cleanSender === ownerNumber) return;
 
         // Manda il messaggio e blocca l'esecuzione del comando
         await sock.sendMessage(chatJid, { 
-            text: 'no negro non sei un onnipotente come il mio re Zeno' 
+            text: 'no negro non sei un onnipotente come il mio re Zeus' 
         }, { quoted: m });
 
         // Questo dice al bot di fermarsi e non eseguire il comando

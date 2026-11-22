@@ -159,7 +159,7 @@ module.exports = {
 
         return await sock.sendMessage(chatId, {
             text: txt,
-            footer: 'Zeno Bot • Antivoip',
+            footer: 'Zeus Bot • Antivoip',
             buttons: [
                 { buttonId: 'antivoip_kickall', buttonText: { displayText: '🚪 Butta fuori tutti' }, type: 1 },
                 { buttonId: 'antivoip_okall', buttonText: { displayText: '✅ Lascia stare' }, type: 1 }

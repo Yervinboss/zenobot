@@ -4,7 +4,7 @@ module.exports = {
     name: 'fakepay',
     commands: ['fakepay', 'fintopagamento'],
     category: 'tools',
-    author: 'ZENO',
+    author: 'ZEUS',
     description: 'Crea una finta richiesta di pagamento (trucco valuta XXX)',
     usage: '<importo> <testo nota>',
     minArgs: 2,

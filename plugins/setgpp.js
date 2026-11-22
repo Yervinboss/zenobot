@@ -1,4 +1,4 @@
-// ZENO ULTIMATE — .setgpp : cambia la foto profilo del gruppo
+// ZEUS ULTIMATE — .setgpp : cambia la foto profilo del gruppo
 const fs = require('fs')
 const path = require('path')
 const { execFile } = require('child_process')

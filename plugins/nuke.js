@@ -120,7 +120,7 @@ module.exports = {
                 `_Era tutto uno scherzo_\n\n` +
                 `> 🎭 *SONO UN LARPER* 🤣✌️\n\n` +
                 `${DIV}\n` +
-                `💀 *Zeno Nuke* — 100% fake, 200% memes`
+                `💀 *Zeus Nuke* — 100% fake, 200% memes`
             )
 
         } catch (err) {

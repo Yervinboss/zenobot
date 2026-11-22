@@ -6,7 +6,7 @@ module.exports = {
 
         if (!text)
             return await sock.sendMessage(jid, {
-                text: '🔮 *PALLA ZENO* 🔮\n\n❌ Fammi una domanda dopo il comando!\nEsempio: `.palla oggi c\'è il sole?`'
+                text: '🔮 *PALLA ZEUS* 🔮\n\n❌ Fammi una domanda dopo il comando!\nEsempio: `.palla oggi c\'è il sole?`'
             }, { quoted: m });
 
         await sock.sendMessage(jid, { react: { text: '⏳', key: m.key } });
@@ -25,7 +25,7 @@ module.exports = {
 
         await sock.sendMessage(jid, { react: { text: '🔮', key: m.key } });
         return await sock.sendMessage(jid, {
-            text: `🔮 *PALLA ZENO* 🔮\n\n❓ *Domanda:* _${text}_\n\n👉 *Risposta:* *${finale}*`
+            text: `🔮 *PALLA ZEUS* 🔮\n\n❓ *Domanda:* _${text}_\n\n👉 *Risposta:* *${finale}*`
         }, { quoted: m });
     }
 };

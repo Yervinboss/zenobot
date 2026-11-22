@@ -1,7 +1,7 @@
 'use strict'
 
 // ═══════════════════════════════════════════════════════════════
-//  ZENO ULTIMATE — Menu principale con categorie vere
+//  ZEUS ULTIMATE — Menu principale con categorie vere
 //  Comandi: .menu, .menu <cat>, .menu tutti, .menucat, .setcat, .setmenu
 // ═══════════════════════════════════════════════════════════════
 
@@ -11,7 +11,7 @@ const path = require('path')
 const { execFile } = require('child_process')
 
 // ── Utility di base ──
-const Z = () => global.ZENO
+const Z = () => global.ZEUS
 const primary = (p) => p.commands.find(c => typeof c === 'string') || p.name
 const keyOf = (p) => String(p.name).replace(/[.\s]/g, '_')
 const names = (p) => [...p.commands.filter(c => typeof c === 'string'), ...(p.aliases || [])].map(x => String(x).toLowerCase())
@@ -69,12 +69,12 @@ const RULES = [
 
 const MAP = {}
 const put = (cat, list) => list.split(/\s+/).filter(Boolean).forEach(c => { MAP[c] = cat })
-put('moderazione', 'kick warn unwarn richiamo grazia mute unmute aperto chiuso apri chiudi p promote d demote del delete tag link invito qr qrlink admin staff paneladmin antilink antispam antivoip antibot req richieste richiesta welcome testwelcome soloadmin solo setgpp gpp fotogruppo top zeno')
+put('moderazione', 'kick warn unwarn richiamo grazia mute unmute aperto chiuso apri chiudi p promote d demote del delete tag link invito qr qrlink admin staff paneladmin antilink antispam antivoip antibot req richieste richiesta welcome testwelcome soloadmin solo setgpp gpp fotogruppo top zeus')
 put('funzioni',    'afk afk_group afk_all afklist id myid pp tpnumero ping')
 put('fun',         'abbraccia abbraccio bacio kiss bacia corna letto sega ditalino cazzo frocio negro dox doxxing figa ano culometro drogato alcolizzato alcol infame quantosbirro sbirrocheck palla imperatore doss ddos dossattacco sex sesso accoppia ban banna fakeban')
 put('rpg',         'bal balance soldi portafoglio work bj blackjack slot ruba steal sposa divorzio divorzia')
 put('media',       'song play shazam pl tp addplaylist casuale random shuffle s sticker toaudio tomp3 mp3 audio vv tx')
-put('creatore',    'stats status clean pulisci clearsessions sessioni menu comandi owner setowner addowner delowner shutdown spegni stopbot blackout setbotpp botpp zenon zenooff nuke nukeall purge testadmin debugadmin setcat menucat setmenu')
+put('creatore',    'stats status clean pulisci clearsessions sessioni menu comandi owner setowner addowner delowner shutdown spegni stopbot blackout setbotpp botpp zeuson zeusoff nuke nukeall purge testadmin debugadmin setcat menucat setmenu')
 
 // ═══════════════════════════════════════════════════════════════
 //  GESTIONE MEDIA (Foto/Video del Menu)
@@ -373,6 +373,21 @@ async function sendMainMenu(ctx, cats) {
         ].join('\n')
     }
 
+    // MENU_UNICO: una sola card con la tendina delle categorie
+    try {
+        const custom = loadMenuMedia()
+        const card = {
+            title: '⚡ MENU PRINCIPALE',
+            body: caption,
+            footer: cfg.cardFooter,
+            buttons: [ctx.btn.list('Seleziona categoria', [{ title: 'Categorie', rows }])]
+        }
+        if (custom && custom.video) card.video = custom.video
+        else if (custom && custom.image) card.image = custom.image
+        await ctx.sendCards({ text: '⚡ MENU DI ' + cfg.botName, footer: cfg.cardFooter, title: 'Menu', cards: [card] })
+        return
+    } catch (e) { try { ctx.log.dbg('menu card: ' + e.message) } catch {} }
+
     let sent = await sendCard(ctx, caption)
     if (!sent) {
         try {
@@ -399,7 +414,7 @@ module.exports = {
     category: 'sistema',
     description: 'Menu principale con le categorie',
     usage: '[categoria]',
-    author: 'ZENO',
+    author: 'ZEUS',
     priority: 100,
     cooldown: 1500,
 

@@ -45,7 +45,7 @@ module.exports = {
     commands: ['blacklist', 'bl'],
     name: 'blacklist',
     category: 'creatore',
-    author: 'ZENO',
+    author: 'ZEUS',
     description: 'Gestisci la blacklist dei gruppi (solo owner)',
     usage: '[list|add <id>|remove <id>]',
     hook,

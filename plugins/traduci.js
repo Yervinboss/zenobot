@@ -24,7 +24,7 @@ module.exports = {
     commands: ['traduci', 'tradu', 'translate', 'tr'],
     name: 'traduci',
     category: 'tools',
-    author: 'ZENO',
+    author: 'ZEUS',
     description: 'Traduce un testo in un\'altra lingua (es. .traduci en Ciao)',
     usage: '<lingua> <testo>',
     minArgs: 1,
@@ -63,7 +63,7 @@ module.exports = {
                 `📝 *Originale:* ${textToTranslate}`,
                 `🔤 *Lingua:* ${result.lang} → ${targetLang}`,
                 { raw: `🇬🇧 *Tradotto:*\n${result.text}` }
-            ], { footer: ctx.config?.botName || 'ZENO' }));
+            ], { footer: ctx.config?.botName || 'ZEUS' }));
 
         } catch (e) {
             console.error('[TRADUCI] Errore definitivo:', e.message);

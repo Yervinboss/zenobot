@@ -1,6 +1,6 @@
 'use strict'
 
-// ZENO MUSIC — .sp (Last.fm) con card in stile Kasane Teto
+// ZEUS MUSIC — .sp (Last.fm) con card in stile Kasane Teto
 //  .sp set <utente lastfm> | .sp | .sp @utente | .sp <utente lastfm> | .sp unset
 //  .sp top [@utente]        top 5 artisti (7 giorni)
 //  .fuoco                   rispondi a una card, oppure .fuoco @utente
@@ -188,7 +188,7 @@ async function paintBg(img) {
             return
         } catch (e) { console.error('[sp] sfondo gif:', e && e.message) }
     }
-    if (!o.overlay) await paintBg(img)
+    paintBackground(img)
 }
 
 function runBin(bin, args) {
@@ -294,7 +294,7 @@ async function makeCardClassic(o) {
     }
     const w1 = await pill(cx - 10, 470, fit(f32, clean(o.user) || 'ascoltatore', 250), rgba(255, 255, 255, 80))
     await pill(cx - 10 + w1 + 14, 470, `FUOCO x${o.fires || 0}`, rgba(255, 140, 30, 235))
-    img.print(f16, cx - 10, 545, 'ZENO x KASANE TETO')
+    img.print(f16, cx - 10, 545, 'ZEUS x KASANE TETO')
 
     // Teto in basso a destra
     if (fs.existsSync(tetoPath)) {
@@ -338,7 +338,7 @@ async function makeCardPoster(o) {
     }
 
     // etichetta in alto a sinistra
-    const brand = 'ZENO-BOT'
+    const brand = 'ZEUS-BOT'
     pill(40, 40, Jimp.measureText(f16, brand) + 44, 44, DARK)
     img.print(f16, 62, 52, brand)
 
@@ -426,7 +426,7 @@ module.exports = {
     category: 'musica',
     description: 'Brano in ascolto da Last.fm con card Teto, fuoco e top artisti',
     usage: 'set <utente lastfm> | @utente | top',
-    author: 'ZENO',
+    author: 'ZEUS',
 
     async run(sock, m, args, cmd, ctx) {
         const chatId = m.key.remoteJid

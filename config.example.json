@@ -46,11 +46,11 @@
     "universalTextFirst": true,
     "carouselStyle": "native",
     "cardImage": "https://i.postimg.cc/266mKgQj/lv-0-20260913184208.jpg",
-    "cardFooter": "ZENO ULTIMATE",
+    "cardFooter": "ZEUS ULTIMATE",
     "cardsPerPage": 10,
     "stackMax": 8,
     "paymentCurrency": "EUR",
     "paymentUrl": "",
-    "botName": "ZENO ULTIMATE",
+    "botName": "ZEUS ULTIMATE",
     "version": "4.6.0"
 }

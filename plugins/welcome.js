@@ -74,7 +74,7 @@ async function sendWelcomeCard(sock, jid, user) {
     if (thumb) loc.jpegThumbnail = thumb;
 
     const card = {
-        key: { participants: '0@s.whatsapp.net', fromMe: false, id: 'ZenoWelcome' },
+        key: { participants: '0@s.whatsapp.net', fromMe: false, id: 'ZeusWelcome' },
         message: { locationMessage: loc },
         participant: '0@s.whatsapp.net'
     };

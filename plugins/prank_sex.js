@@ -17,7 +17,7 @@ module.exports = {
 
         await sock.sendMessage(jid, { react: { text: '👉', key: m.key } });
 
-        const testoMeme = `🛰️ *[ZENO PRANK CORE]* 🛰️\n\n` +
+        const testoMeme = `🛰️ *[ZEUS PRANK CORE]* 🛰️\n\n` +
                           `👉 @${senderId} hа puntаtо il cаzzо\n` +
                           `💦 è pаrtitо sul suо аnо e hа sbоrrаtо adоssо a @${targetId}! 🛌💨`;
 

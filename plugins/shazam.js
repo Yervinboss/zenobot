@@ -112,7 +112,7 @@ module.exports = {
             const audioMsg = quoted?.audioMessage || msg.audioMessage;
             const videoMsg = quoted?.videoMessage || msg.videoMessage;
             if (!audioMsg && !videoMsg)
-                return await sock.sendMessage(jid, { text: '🎧 *ZENO SHAZAM*\n\n❌ Rispondi a un vocale/audio/video con `.shazam`!' }, { quoted: m });
+                return await sock.sendMessage(jid, { text: '🎧 *ZEUS SHAZAM*\n\n❌ Rispondi a un vocale/audio/video con `.shazam`!' }, { quoted: m });
 
             await sock.sendMessage(jid, { react: { text: '🔎', key: m.key } });
 
@@ -152,7 +152,7 @@ module.exports = {
                 const artist = track.subtitle || 'Sconosciuto';
                 const album = track.sections?.find(s => s.metadata)?.metadata?.find(md => md.title === 'Album')?.text;
 
-                let txt = `🎧 *ZENO SHAZAM*\n\n🎵 *${title}*\n🎤 *${artist}*\n`;
+                let txt = `🎧 *ZEUS SHAZAM*\n\n🎵 *${title}*\n🎤 *${artist}*\n`;
                 if (album) txt += `💿 *${album}*\n`;
                 await sock.sendMessage(jid, { react: { text: '🎵', key: m.key } });
 
@@ -165,7 +165,7 @@ module.exports = {
                         writeDb(shazamDbPath, musicDb);
 
                         return await sendButtons(
-                            sock, jid, txt, 'Zeno Bot - Shazam',
+                            sock, jid, txt, 'Zeus Bot - Shazam',
                             [
                                 { text: '🎧 Riproduci', id: 'shazam_play' },
                                 { text: '➕ Aggiungi a PL', id: 'shazam_add_pl' }

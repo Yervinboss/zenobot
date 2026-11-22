@@ -25,22 +25,22 @@ async function isAdmin(sock, jid, sender) {
     } catch { return false; }
 }
 
-async function sendZenoPanel(sock, jid, m, isOn) {
+async function sendZeusPanel(sock, jid, m, isOn) {
     const status = isOn ? 'ONLINE 🛡️ (Chat Protetta)' : 'DISATTIVATO 🔓 (Nessuno Scudo)';
     const bodyText = `『 👑 *Z E N O   S U P R E M E* 👑 』\n\n` +
                      `🛡️ *Sistema Anti-Nuke & Raid Core*\n` +
                      `📊 *Stato:* *${status}*\n\n` +
                      `_Usa i pulsanti per accendere/spegnere lo scudo:_`;
     const buttons = [
-        { name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: '🛡️ Attiva Scudo', id: 'zenon' }) },
-        { name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: '🔓 Disattiva', id: 'zenooff' }) }
+        { name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: '🛡️ Attiva Scudo', id: 'zeuson' }) },
+        { name: 'quick_reply', buttonParamsJson: JSON.stringify({ display_text: '🔓 Disattiva', id: 'zeusoff' }) }
     ];
-    const msg = { viewOnceMessage: { message: { interactiveMessage: { body: { text: bodyText }, footer: { text: 'Zeno Guard ⚙️' }, nativeFlowMessage: { buttons } } } } };
+    const msg = { viewOnceMessage: { message: { interactiveMessage: { body: { text: bodyText }, footer: { text: 'Zeus Guard ⚙️' }, nativeFlowMessage: { buttons } } } } };
     return await sock.relayMessage(jid, msg, { quoted: m });
 }
 
 module.exports = {
-    commands: ['zeno', '0', 'zenon', 'zenooff'],
+    commands: ['zeus', '0', 'zeuson', 'zeusoff'],
     run: async (sock, m, args, cmd) => {
         const jid = m.key.remoteJid;
         if (!jid.endsWith('@g.us'))
@@ -54,19 +54,19 @@ module.exports = {
 
         let list = getDB();
 
-        if (cmd === 'zenon') {
+        if (cmd === 'zeuson') {
             if (!list.includes(jid)) { list.push(jid); saveDB(list); }
             await sock.sendMessage(jid, { react: { text: '🛡️', key: m.key } });
             return await sock.sendMessage(jid, { text: '🛡️ *ANTI-NUKE ATTIVATO!*' }, { quoted: m });
         }
-        if (cmd === 'zenooff') {
+        if (cmd === 'zeusoff') {
             list = list.filter(g => g !== jid); saveDB(list);
             await sock.sendMessage(jid, { react: { text: '🔓', key: m.key } });
             return await sock.sendMessage(jid, { text: '🔓 *ANTI-NUKE DISATTIVATO.*' }, { quoted: m });
         }
 
         await sock.sendMessage(jid, { react: { text: '👑', key: m.key } });
-        return await sendZenoPanel(sock, jid, m, list.includes(jid));
+        return await sendZeusPanel(sock, jid, m, list.includes(jid));
     },
 
     hook: async (sock, m) => {

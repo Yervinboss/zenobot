@@ -98,7 +98,7 @@ module.exports = {
 
             return await sock.sendMessage(chatId, {
                 text: txt,
-                footer: 'Zeno Bot • Analisi Numero',
+                footer: 'Zeus Bot • Analisi Numero',
                 buttons: [
                     { buttonId: 'tpnum_wa', buttonText: { displayText: '📱 WhatsApp' }, type: 1 },
                     { buttonId: 'tpnum_info', buttonText: { displayText: '📞 Info' }, type: 1 },

@@ -79,7 +79,7 @@ async function hook(sock, m) {
     const p = pending.get(sender);
     if (!p) return;
 
-    const Z = global.ZENO;
+    const Z = global.ZEUS;
     const prefixes = [].concat(Z?.CONFIG?.prefix || '.', Z?.CONFIG?.prefixes || []).filter(Boolean);
     const raw = extractText(m);
     if (raw && prefixes.some(pr => raw.startsWith(pr))) return; // è un altro comando, ignora
@@ -97,7 +97,7 @@ module.exports = {
     commands: cmds,
     name: 'bt',
     category: 'creatore',
-    author: 'ZENO',
+    author: 'ZEUS',
     description: 'Broadcast con menu di selezione (stile menu)',
     usage: '[testo]',
     ownerOnly: true,

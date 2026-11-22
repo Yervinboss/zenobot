@@ -150,7 +150,7 @@ module.exports = (() => {
                 const value1000 = parseInt(parseFloat(amount) * 1000);
 
                 // Mappatura dinamica e sicura della libreria Baileys
-                let baileysLib = global.ZENO?.CONFIG?.library;
+                let baileysLib = global.ZEUS?.CONFIG?.library;
                 if (Array.isArray(baileysLib)) baileysLib = baileysLib[0];
                 if (!baileysLib) baileysLib = '@itsliaaa/baileys';
                 

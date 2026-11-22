@@ -83,7 +83,7 @@ module.exports = {
                     `📊 Mem process: ${heapUsed} MB / ${heapTotal} MB`;
 
         return await sendButtons(
-            sock, jid, txt, 'ZenoBot • Pannello di Controllo',
+            sock, jid, txt, 'ZeusBot • Pannello di Controllo',
             [
                 { text: '🔄 Aggiorna', id: 'ping' },
                 { text: '🧹 Pulisci RAM', id: 'clean' },

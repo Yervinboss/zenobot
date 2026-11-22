@@ -1,11 +1,11 @@
 
 <div align="center">
 
-<img src="https://i.postimg.cc/266mKgQj/lv-0-20260913184208.jpg" alt="ZENO ULTIMATE" width="100%" style="border-radius: 15px;" />
+<img src="https://i.postimg.cc/266mKgQj/lv-0-20260913184208.jpg" alt="ZEUS ULTIMATE" width="100%" style="border-radius: 15px;" />
 
 <br><br>
 
-# ⚡ ZENO ULTIMATE
+# ⚡ ZEUS ULTIMATE
 
 ### 🤖 *Bot WhatsApp — Android • iPhone • PC*
 
@@ -79,8 +79,8 @@ pip3 install yt-dlp
 🚀 Avvio (tutte le piattaforme)
 
 ```bash
-git clone https://github.com/TUO-USERNAME/zeno-ultimate.git
-cd zeno-ultimate
+git clone https://github.com/TUO-USERNAME/zeus-ultimate.git
+cd zeus-ultimate
 npm install
 nano config.json
 node index.js
@@ -108,8 +108,8 @@ apk add nodejs npm git python3 py3-pip ffmpeg make gcc musl-dev
 pip3 install -U yt-dlp
 
 # Clona e avvia
-git clone https://github.com/TUO-USERNAME/zeno-ultimate.git
-cd zeno-ultimate
+git clone https://github.com/TUO-USERNAME/zeus-ultimate.git
+cd zeus-ultimate
 npm install
 nano config.json
 node index.js
@@ -131,7 +131,7 @@ Affitta un VPS Ubuntu (~4€/mese) su Hetzner, Contabo o DigitalOcean e segui la
 
 <br>
 
-⚡ ZENO ULTIMATE ⚡
+⚡ ZEUS ULTIMATE ⚡
 
 <sub>Made with 💜 in Italy 🇮🇹</sub>
 

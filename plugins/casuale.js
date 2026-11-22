@@ -1,4 +1,4 @@
-// ZENO ULTIMATE — .casuale : manda una canzone a caso dalla tua playlist (.pl)
+// ZEUS ULTIMATE — .casuale : manda una canzone a caso dalla tua playlist (.pl)
 const fs = require('fs')
 const os = require('os')
 const path = require('path')
@@ -30,8 +30,8 @@ module.exports = {
         await sock.sendMessage(jid, { text: `🎲 *Canzone casuale*\n\n📌 ${t.title}${t.duration ? `\n⏱ ${t.duration}` : ''}\n\n_Sto preparando l'audio..._` }, { quoted: m })
 
         const id = Date.now()
-        const mp3 = path.join(os.tmpdir(), `zeno_rnd_${id}.mp3`)
-        const ogg = path.join(os.tmpdir(), `zeno_rnd_${id}.ogg`)
+        const mp3 = path.join(os.tmpdir(), `zeus_rnd_${id}.mp3`)
+        const ogg = path.join(os.tmpdir(), `zeus_rnd_${id}.ogg`)
         try {
             await run(`yt-dlp -x --audio-format mp3 --audio-quality 192k --extractor-args youtube:player-client=android,web -o "${mp3}" "${t.url}"`, { timeout: 120000 })
             await run(`ffmpeg -y -i "${mp3}" -c:a libopus -b:a 128k -ar 48000 -ac 1 -f ogg "${ogg}"`, { timeout: 60000 })

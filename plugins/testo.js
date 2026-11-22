@@ -11,7 +11,7 @@ const MAX_CHARS = 3500;
 const pending = new Map();
 
 async function getJson(url) {
-    const r = await fetch(url, { headers: { 'User-Agent': 'ZenoBot/1.0' }, signal: AbortSignal.timeout(15000) });
+    const r = await fetch(url, { headers: { 'User-Agent': 'ZeusBot/1.0' }, signal: AbortSignal.timeout(15000) });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
 }

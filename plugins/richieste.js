@@ -126,6 +126,6 @@ module.exports = {
         if (lidCount > 0) bodyText += `❓ LID (numeri nascosti): *${lidCount}*\n`;
         bodyText += `\nScegli un'opzione:`;
 
-        return await sendButtons(sock, jid, bodyText, 'Zeno Bot • Security 🛡️', buttons, m);
+        return await sendButtons(sock, jid, bodyText, 'Zeus Bot • Security 🛡️', buttons, m);
     }
 };

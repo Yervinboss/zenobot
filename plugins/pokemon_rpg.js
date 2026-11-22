@@ -193,7 +193,7 @@ const teamLine = (p, i) =>
 // ── BOTTONI ──
 // Se premendo un bottone non succede niente, metti il tuo prefisso qui sotto (es. '.')
 const BTN_PREFIX = ''
-const FOOTER = '⚡ Zeno Ultimate • Pokémon RPG'
+const FOOTER = '⚡ Zeus Ultimate • Pokémon RPG'
 const BTN = (cmdline, label) => ({ buttonId: BTN_PREFIX + cmdline, buttonText: { displayText: label }, type: 1 })
 
 async function sendB(ctx, out, buttons) {
@@ -487,7 +487,7 @@ module.exports = {
     ],
     category: 'pokemon',
     description: 'Il mondo Pokémon RPG',
-    author: 'ZENO',
+    author: 'ZEUS',
 
     async run(sock, m, args, cmd, ctx) {
         const sender = m.key.participant || m.key.remoteJid

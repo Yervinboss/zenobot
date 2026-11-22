@@ -160,9 +160,9 @@ function clearAll() {
     for (const id of [...loadIndex().keys()]) forget(id)
 }
 
-if (!global.__zenoVvTimer) {
-    global.__zenoVvTimer = setInterval(() => { try { purge() } catch {} }, 10 * 60 * 1000)
-    if (global.__zenoVvTimer.unref) global.__zenoVvTimer.unref()
+if (!global.__zeusVvTimer) {
+    global.__zeusVvTimer = setInterval(() => { try { purge() } catch {} }, 10 * 60 * 1000)
+    if (global.__zeusVvTimer.unref) global.__zeusVvTimer.unref()
 }
 
 // ── hook ──

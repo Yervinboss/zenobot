@@ -60,7 +60,7 @@ module.exports = {
         const imageMessage = quoted?.imageMessage || msg.imageMessage;
 
         if (!imageMessage) {
-            return say('📸 *ZENO AVATAR*\n\n❌ Rispondi a un\'immagine con `.setbotpp`');
+            return say('📸 *ZEUS AVATAR*\n\n❌ Rispondi a un\'immagine con `.setbotpp`');
         }
 
         await react('⏳');

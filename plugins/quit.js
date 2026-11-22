@@ -85,7 +85,7 @@ module.exports = {
     commands: cmds,
     name: 'quit',
     category: 'creatore',
-    author: 'ZENO',
+    author: 'ZEUS',
     description: 'Fai uscire il bot da uno o più gruppi (multi-select)',
     usage: '',
     ownerOnly: true,

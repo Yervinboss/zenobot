@@ -20,3 +20,6 @@ temp/
 shazam_music_db.json
 temp/
 config.json
+lib/groq.key
+lib/gemini.key
+cookies.txt

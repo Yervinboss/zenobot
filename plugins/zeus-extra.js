@@ -1,5 +1,5 @@
 'use strict'
-// ═══ ZENO EXTRA — solo comandi nuovi: calc, dado, moneta, scegli, 8ball, sondaggio, nota, tagall ═══
+// ═══ ZEUS EXTRA — solo comandi nuovi: calc, dado, moneta, scegli, 8ball, sondaggio, nota, tagall ═══
 const bare = (j = '') => String(j).split('@')[0].split(':')[0]
 const pick = (a) => a[Math.floor(Math.random() * a.length)]
 const CMDS = {}
@@ -62,14 +62,14 @@ CMDS.tagall = async (sock, m, args, ctx) => {
 }
 CMDS.extra = async (sock, m, args, ctx) => {
     const p = ctx.prefix
-    ctx.reply(ctx.ui.box('✨ ZENO EXTRA', [
+    ctx.reply(ctx.ui.box('✨ ZEUS EXTRA', [
         `${p}calc 2*(3+4) • ${p}dado [facce] • ${p}moneta`, `${p}scegli a | b | c • ${p}8ball domanda`,
         `${p}sondaggio Domanda | a | b`, `${p}nota add|del|(vuoto) • ${p}tagall [testo]`
     ]))
 }
 
 module.exports = {
-    name: 'zeno-extra', category: 'funzioni', author: 'ZENO', version: '2.0.0',
+    name: 'zeus-extra', category: 'funzioni', author: 'ZEUS', version: '2.0.0',
     description: 'Calc, dado, moneta, scegli, 8ball, sondaggio, note personali, tagall',
     usage: '',
     commands: Object.keys(CMDS),

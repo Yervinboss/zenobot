@@ -59,7 +59,7 @@ module.exports = {
             db[sender] = { url: vid.url, title: vid.title, duration: vid.timestamp };
             writeDb(db, dbPath);
 
-            let txt = `🎶 *ZENO MUSIC* 🎶\n\n` +
+            let txt = `🎶 *ZEUS MUSIC* 🎶\n\n` +
                       `🔎 *Cercavi:* "${query}"\n` +
                       `📌 *Titolo:* ${vid.title}\n` +
                       `⏱ *Durata:* ${vid.timestamp}\n` +
@@ -77,7 +77,7 @@ module.exports = {
             return await sock.sendMessage(chatId, {
                 image: buffer,
                 caption: txt,
-                footer: '⚡ Zeno Bot - Music Player',
+                footer: '⚡ Zeus Bot - Music Player',
                 buttons: buttons,
                 headerType: 4
             }, { quoted: m });

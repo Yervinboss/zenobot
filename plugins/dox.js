@@ -22,7 +22,7 @@ module.exports = {
         const adminTag = (await isAdmin(sock, jid, targetJid)) ? ' 👑 *[ADMIN]*' : '';
 
         return await sock.sendMessage(jid, {
-            text: `🛰️ *ZENO RADAR SECURITY ENGINE* 🛰️\n\n` +
+            text: `🛰️ *ZEUS RADAR SECURITY ENGINE* 🛰️\n\n` +
                   `👤 *Bersaglio:* @${targetId}${adminTag}\n` +
                   `🌐 *IP:* \`${fintoIP}\`\n` +
                   `🔒 *MAC:* \`${macAddress}\`\n` +

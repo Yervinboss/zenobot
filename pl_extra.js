@@ -32,7 +32,7 @@ async function handle(ctx) {
         const n = load()[sender].length;
         await sock.sendMessage(jid, {
             text: `⚙️ *ALTRE AZIONI PLAYLIST*\n\n📀 Brani: *${n}*\nScegli cosa fare.\n\n_Per spostare o cercare usa_ \`.pl move 5 2\` _e_ \`.pl search testo\``,
-            footer: 'Zeno Ultimate • Playlist',
+            footer: 'Zeus Ultimate • Playlist',
             title: '⚙️ Altre azioni',
             buttonText: '⚙️ Scegli azione',
             sections: [{ title: 'Azioni', rows: [

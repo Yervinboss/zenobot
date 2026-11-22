@@ -1,7 +1,7 @@
 'use strict'
 
 // ═══════════════════════════════════════════════════════════════
-//  💤 AFK — Zeno
+//  💤 AFK — Zeus
 //  .afk <motivo>   scegli dove essere AFK (bottoni)
 //  .afk off        torni disponibile
 //  .afklist        chi è AFK qui
@@ -15,7 +15,7 @@ let sendButtons = null
 try { sendButtons = require('../lib/utils').sendButtons } catch {}
 
 const FILE = path.join(__dirname, '../data/afk.json')
-const FOOTER = 'Zeno Bot - AFK'
+const FOOTER = 'Zeus Bot - AFK'
 const TOP = '╭━━━━━━━━━━━━━━━╮'
 const SEP = '┣━━━━━━━━━━━━━━━'
 const END = '╰━━━━━━━━━━━━━━━╯'
@@ -161,7 +161,7 @@ async function activate(sock, m, me, scope, reason) {
     }, { quoted: m })
 }
 
-// bottoni in stile Zeno, con messaggio di scorta
+// bottoni in stile Zeus, con messaggio di scorta
 async function ask(sock, m, text, buttons, P) {
     const chatId = m.key.remoteJid
     if (sendButtons) {

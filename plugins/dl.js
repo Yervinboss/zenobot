@@ -1,4 +1,4 @@
-// ZENO ULTIMATE — .dl : scarica video o audio da un link
+// ZEUS ULTIMATE — .dl : scarica video o audio da un link
 // Uso: .dl <link>   |   .dl audio <link>   |   .dla <link>   (anche rispondendo a un messaggio con un link)
 const fs = require('fs');
 const os = require('os');
@@ -163,7 +163,7 @@ module.exports = {
 
         // lavoro in background, così il core non va in timeout sui download lunghi
         (async () => {
-            const prefix = `zeno_dl_${Date.now()}`;
+            const prefix = `zeus_dl_${Date.now()}`;
             const base = path.join(os.tmpdir(), prefix);
             try {
                 let file, title;

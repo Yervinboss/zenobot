@@ -1,270 +1,254 @@
-'use strict'
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFile } = require('child_process');
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  🎧  TP PLAYER v4 — formato LIST CLASSICO (title + sections)
-// ═══════════════════════════════════════════════════════════════════════════
+const MAX_AUDIO_SEC = 900;
+const MAX_VIDEO_SEC = 480;
+let busy = 0;
 
-const yts = require('yt-search')
-const { exec } = require('child_process')
-const fs   = require('fs')
-const os   = require('os')
-const path = require('path')
+global.tpSongs = global.tpSongs || {};
 
-const PREFIX = global.ZENO?.CONFIG?.prefix || '.'
+const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+const baseTitle = (s) => norm(String(s).replace(/\(.*?\)|\[.*?\]/g, '').replace(/\s-\s.*$/, ''));
+const fmtTime = (ms) => { const s = Math.round((ms || 0) / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+const cut = (s, n) => (String(s).length > n ? String(s).slice(0, n - 1) + '…' : String(s));
+const keyOf = (jid) => String(jid || '').split('@')[0].split(':')[0].replace(/\D/g, '') || String(jid || '');
 
-const pendingLyrics  = {}
-global.tpChoice      = global.tpChoice    || {}
-global.tpSelection   = global.tpSelection || {}
+async function itunes(term, artistOnly) {
+  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=50${artistOnly ? '&attribute=artistTerm' : ''}`;
+  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error(`iTunes ${res.status}`);
+  return (await res.json()).results || [];
+}
 
-const execPromise = (cmd) => new Promise((resolve, reject) => {
-    exec(cmd, { maxBuffer: 1024 * 1024 * 10 }, (err, stdout, stderr) => {
-        if (err) reject(new Error(stderr || err.message))
-        else resolve(stdout)
-    })
-})
+function pick(list, artist, strict) {
+  const a = norm(artist);
+  const seen = new Set(), out = [];
+  for (const t of list) {
+    if (!t.trackName) continue;
+    if (strict && !norm(t.artistName).includes(a)) continue;
+    const key = baseTitle(t.trackName);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+    if (out.length === 5) break;
+  }
+  return out;
+}
 
-const short = (s, n = 55) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s)
+async function ytFill(artist, have) {
+  try {
+    const out = await run('yt-dlp', ['--no-warnings', '--flat-playlist', '-j', '--extractor-args', 'youtube:player_client=default', `ytsearch12:${artist}`], 60000);
+    const a = norm(artist);
+    const seen = new Set(have.map((t) => baseTitle(t.trackName)));
+    const res = [...have];
+    for (const line of out.split('\n').filter(Boolean)) {
+      if (res.length >= 5) break;
+      let v;
+      try { v = JSON.parse(line); } catch { continue; }
+      if (!v.id || v.is_live || !(v.duration >= 60 && v.duration <= 600)) continue;
+      if (!norm(`${v.title} ${v.channel || v.uploader || ''}`).includes(a)) continue;
+      const parts = String(v.title).split(/\s[-–]\s/);
+      let name = parts.length > 1 ? parts.slice(1).join(' - ') : String(v.title);
+      name = name.replace(/\s*[\(\[][^\)\]]*[\)\]]\s*$/, '').trim() || String(v.title);
+      const key = baseTitle(name);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      res.push({
+        trackName: cut(name, 50),
+        artistName: have[0]?.artistName || artist,
+        collectionName: '',
+        trackTimeMillis: v.duration * 1000,
+        artworkUrl100: `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`,
+        query: cut(String(v.title), 120)
+      });
+    }
+    return res;
+  } catch (e) { return have; }
+}
+
+async function topSongs(artist) {
+  let list = await itunes(artist, true).catch(() => []);
+  if (!list.length) list = await itunes(artist, false);
+  const strict = pick(list, artist, true);
+  const base = strict.length ? strict : pick(list, artist, false);
+  return base.length >= 5 ? base : await ytFill(artist, base);
+}
+
+function run(cmd, args, timeout) {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { timeout, maxBuffer: 20 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err && err.code !== 101) { err.stderr = stderr; return reject(err); }
+      resolve(stdout);
+    });
+  });
+}
+
+function cleanup(stamp) {
+  const dir = os.tmpdir();
+  try { for (const f of fs.readdirSync(dir)) if (f.startsWith(stamp + '.')) fs.unlinkSync(path.join(dir, f)); } catch {}
+}
+
+async function toVoiceOgg(inputFile, stamp) {
+  const outFile = path.join(os.tmpdir(), `${stamp}_ptt.ogg`);
+  try {
+    await run('ffmpeg', [
+      '-y', '-i', inputFile,
+      '-vn', '-c:a', 'libopus', '-b:a', '48k', '-ar', '48000', '-ac', '1',
+      outFile
+    ], 2 * 60 * 1000);
+    if (fs.existsSync(outFile) && fs.statSync(outFile).size > 0) {
+      return { buf: fs.readFileSync(outFile), mimetype: 'audio/ogg; codecs=opus', ptt: true };
+    }
+  } catch {}
+  return { buf: fs.readFileSync(inputFile), mimetype: 'audio/mp4', ptt: true };
+}
+
+async function download(query, kind) {
+  const stamp = `zeus_tp_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+  const dir = os.tmpdir();
+  const common = [
+    '--no-warnings', '--no-playlist', '-q', '--socket-timeout', '20', '--retries', '3',
+    '--extractor-args', 'youtube:player_client=default',
+    '--max-downloads', '1', '--max-filesize', '50M',
+    '-o', path.join(dir, `${stamp}.%(ext)s`)
+  ];
+  const args = kind === 'video'
+    ? [...common, '--match-filter', `duration<=${MAX_VIDEO_SEC}`,
+        '-f', 'b[height<=480][ext=mp4]/bv*[height<=480][ext=mp4]+ba[ext=m4a]/b[ext=mp4]',
+        '--merge-output-format', 'mp4', `ytsearch3:${query} official video`]
+    : [...common, '--match-filter', `duration<=${MAX_AUDIO_SEC}`,
+        '-f', 'bestaudio[ext=m4a]/bestaudio/best', `ytsearch3:${query} official audio`];
+  try {
+    await run('yt-dlp', args, 5 * 60 * 1000);
+  } catch (e) { cleanup(stamp); throw e; }
+  const file = fs.readdirSync(dir).find((f) => f.startsWith(stamp + '.') && !f.endsWith('.part') && !f.endsWith('_ptt.ogg'));
+  return { file: file ? path.join(dir, file) : null, stamp };
+}
 
 module.exports = {
-    commands: ['tp', 'tp_select', 'tp_audio', 'tp_video'],
-    cooldown: 2000,
+  name: 'tp',
+  commands: ['tp', 'top5', 'tpplay', 'tpvideo'],
+  category: 'musica',
+  description: 'Top 5 canzoni di un artista con bottoni diretti Riproduci e Manda video',
+  usage: '<artista>',
+  cooldown: 1500,
+  run: async (sock, m, args, command, ctx) => {
+    const jid = ctx.chat, prefix = ctx.prefix, sender = ctx.sender;
+    const reply = ctx.reply, react = ctx.react, btn = ctx.btn;
+    const P = prefix || '.';
+    const query = args.join(' ').trim();
+    const skey = keyOf(sender);
 
-    async run(sock, m, args, cmd) {
-        const chatId = m.key.remoteJid
-        const sender = m.key.participant || chatId
-        const text   = args.join(' ').trim()
+    if (command === 'tpplay' || command === 'tpvideo') {
+      const kind = command === 'tpvideo' ? 'video' : 'audio';
+      const index = parseInt(args[0], 10);
+      const songs = global.tpSongs[skey];
+      const song = !Number.isNaN(index) && songs?.[index] ? songs[index] : null;
 
-        // ═════════════════════════════════════════════════════════════════
-        //  .tp <query>
-        // ═════════════════════════════════════════════════════════════════
-        if (cmd === 'tp') {
-            if (!text) return sock.sendMessage(chatId, { text: '🎧 Scrivi il titolo!' }, { quoted: m })
+      if (!song) return reply({ text: `⚠️ Selezione non valida o scaduta. Fai di nuovo *${P}tp artista*.` });
 
-            let search
-            try { search = await yts(text) }
-            catch { return sock.sendMessage(chatId, { text: '❌ Errore nella ricerca' }, { quoted: m }) }
+      const targetQuery = song.query || `${song.artistName} - ${song.trackName}`;
+      if (busy >= 2) return reply({ text: '⏳ Sto già scaricando altre canzoni, riprova tra poco.' });
 
-            const results = (search.videos || []).slice(0, 5)
-            if (!results.length) return sock.sendMessage(chatId, { text: '❌ Nessun risultato' }, { quoted: m })
-
-            global.tpSelection[sender] = results
-
-            const rows = results.map((v, i) => ({
-                title: `${i + 1}. ${short(v.title, 50)}`,
-                description: `⏱️ ${v.timestamp || '—'} • 📺 ${short(v.author?.name || '—', 30)} • 👁️ ${v.views?.toLocaleString() || '—'}`,
-                rowId: `${PREFIX}tp_select ${i + 1}`
-            }))
-
-            // ── FORMATO LIST CLASSICO (funziona su 99% dei fork)
-            try {
-                await sock.sendMessage(chatId, {
-                    text: `🔎 *TOP ${results.length}*\n_${text}_\n\n👇 Apri il menu e scegli il brano`,
-                    footer: 'TP BOT',
-                    title: '🎵 Risultati',
-                    buttonText: '📂 Apri menu',
-                    sections: [{
-                        title: '🎵 Brani trovati',
-                        rows
-                    }]
-                }, { quoted: m })
-                console.log('[TP] listMessage inviato per', sender)
-                return
-            } catch (e) {
-                console.log('[TP] listMessage KO:', e.message)
-            }
-
-            // ── Fallback testuale
-            const list = results
-                .map((v, i) => `*${i + 1}.* ${short(v.title, 60)}\n   ⏱️ ${v.timestamp || '—'} • 📺 ${short(v.author?.name || '—', 30)}`)
-                .join('\n\n')
-            await sock.sendMessage(chatId, {
-                text: `🔎 *Risultati per* "${text}"\n\n${list}\n\n👉 Scrivi *${PREFIX}tp_select <numero>*`
-            }, { quoted: m })
-            return
+      busy++;
+      await react('⏳');
+      let job = null;
+      try {
+        for (let i = 0; i < 2 && !job?.file; i++) {
+          try { job = await download(targetQuery, kind); }
+          catch (e) {
+            const txt = String(e.stderr || e.message);
+            if (i === 1 || !/403|timed out|HTTP Error/i.test(txt)) throw e;
+            await new Promise((r) => setTimeout(r, 1500));
+          }
         }
-
-        // ═════════════════════════════════════════════════════════════════
-        //  .tp_select <n>
-        // ═════════════════════════════════════════════════════════════════
-        if (cmd === 'tp_select') {
-            const index = Number((args[0] || '').trim())
-            const results = global.tpSelection[sender]
-
-            if (!results?.length)
-                return sock.sendMessage(chatId, { text: '❌ Nessuna selezione attiva' }, { quoted: m })
-
-            if (!Number.isInteger(index) || index < 1 || index > results.length)
-                return sock.sendMessage(chatId, { text: `❌ Numero non valido (1-${results.length})` }, { quoted: m })
-
-            const video = results[index - 1]
-            global.tpChoice[sender] = video
-            delete global.tpSelection[sender]
-
-            const caption =
-                `🎶 *${short(video.title, 80)}*\n\n` +
-                `📺 Canale: ${video.author?.name || 'Sconosciuto'}\n` +
-                `⏱️ Durata: ${video.timestamp || '—'}\n` +
-                `👁️ Ascolti: ${video.views?.toLocaleString() || '—'}`
-
-            // ── LIST formato scelta formato
-            try {
-                await sock.sendMessage(chatId, {
-                    text: caption,
-                    footer: 'TP BOT',
-                    title: '🎬 Scegli formato',
-                    buttonText: '📂 Scegli',
-                    sections: [{
-                        title: '🎬 Formato',
-                        rows: [
-                            {
-                                title: '🎧 Audio (MP3)',
-                                description: 'Leggero, veloce',
-                                rowId: `${PREFIX}tp_audio`
-                            },
-                            {
-                                title: '🎥 Video (MP4 480p)',
-                                description: 'Max 8 minuti, 64MB',
-                                rowId: `${PREFIX}tp_video`
-                            }
-                        ]
-                    }]
-                }, { quoted: m })
-                return
-            } catch (e) {
-                console.log('[TP] list format KO:', e.message)
-            }
-
-            // ── Fallback: bottoni
-            try {
-                await sock.sendMessage(chatId, {
-                    text: caption + `\n\n🎧 Audio\n🎥 Video`,
-                    footer: 'TP BOT',
-                    buttons: [
-                        { buttonId: `${PREFIX}tp_audio`, buttonText: { displayText: '🎧 Audio' }, type: 1 },
-                        { buttonId: `${PREFIX}tp_video`, buttonText: { displayText: '🎥 Video' }, type: 1 }
-                    ],
-                    headerType: 1
-                }, { quoted: m })
-                return
-            } catch (e) {
-                console.log('[TP] buttons KO:', e.message)
-            }
-
-            // ── Fallback testo
-            await sock.sendMessage(chatId, {
-                text: `${caption}\n\nRispondi con:\n• *${PREFIX}tp_audio*\n• *${PREFIX}tp_video*`
-            }, { quoted: m })
-            return
+        if (!job?.file) {
+          await react('❌');
+          return reply({ text: `❌ Non ho trovato una versione adatta di *${targetQuery}* (max ${kind === 'video' ? MAX_VIDEO_SEC / 60 : MAX_AUDIO_SEC / 60} minuti).` });
         }
-
-        // ═════════════════════════════════════════════════════════════════
-        //  .tp_audio / .tp_video
-        // ═════════════════════════════════════════════════════════════════
-        const video = global.tpChoice[sender]
-        if (!video)
-            return sock.sendMessage(chatId, { text: '❌ Nessuna richiesta attiva. Usa `.tp <titolo>`' }, { quoted: m })
-
-        if (cmd === 'tp_audio') {
-            await sock.sendMessage(chatId, {
-                text: `ℹ️ *${short(video.title, 80)}*\n\n⌛️ Scarico l'audio...\n> TP BOT downloader`
-            }, { quoted: m })
-
-            const file = path.join(os.tmpdir(), `tp_${Date.now()}.mp3`)
-
-            exec(`yt-dlp -x --audio-format mp3 -o "${file}" "${video.url}"`, async (err) => {
-                if (err) return sock.sendMessage(chatId, { text: '❌ Errore download audio' }, { quoted: m }).catch(() => {})
-
-                try {
-                    await sock.sendMessage(chatId, {
-                        audio: fs.readFileSync(file),
-                        mimetype: 'audio/mpeg',
-                        ptt: false
-                    }, { quoted: m })
-                } catch (e) {
-                    await sock.sendMessage(chatId, { text: `❌ Invio fallito: ${e.message}` }, { quoted: m }).catch(() => {})
-                }
-
-                try { fs.unlinkSync(file) } catch {}
-
-                global.tpLyricsRequest = global.tpLyricsRequest || {}
-                global.tpLyricsRequest[sender] = video.title
-
-                if (pendingLyrics[sender]) clearTimeout(pendingLyrics[sender])
-                pendingLyrics[sender] = setTimeout(() => {
-                    delete pendingLyrics[sender]
-                    delete global.tpLyricsRequest[sender]
-                }, 15000)
-
-                try {
-                    await sock.sendMessage(chatId, {
-                        text: `📜 Vuoi il testo di questa canzone?\n\n*${short(video.title, 80)}*`,
-                        footer: 'TP BOT',
-                        buttons: [
-                            { buttonId: `${PREFIX}lyrics_yes`, buttonText: { displayText: '✅ Sì' }, type: 1 }
-                        ],
-                        headerType: 1
-                    }, { quoted: m })
-                } catch {
-                    await sock.sendMessage(chatId, {
-                        text: `📜 Vuoi il testo?\nScrivi *${PREFIX}lyrics* entro 15s`
-                    }, { quoted: m })
-                }
-
-                delete global.tpChoice[sender]
-            })
-            return
+        if (kind === 'video') {
+          const buf = fs.readFileSync(job.file);
+          await sock.sendMessage(jid, { video: buf, mimetype: 'video/mp4', caption: `🎬 ${song.trackName}` }, { quoted: m });
+        } else {
+          const voice = await toVoiceOgg(job.file, job.stamp);
+          await sock.sendMessage(jid, { audio: voice.buf, mimetype: voice.mimetype, ptt: voice.ptt }, { quoted: m });
         }
-
-        if (cmd === 'tp_video') {
-            if ((video.seconds || 0) > 480)
-                return sock.sendMessage(chatId, { text: '❌ Max 8 minuti' }, { quoted: m })
-
-            await sock.sendMessage(chatId, {
-                text: `🎬 Scarico video...\n> TP BOT downloader`
-            }, { quoted: m })
-
-            const ts  = Date.now()
-            const raw = path.join(os.tmpdir(), `tp_raw_${ts}.mp4`)
-            const out = path.join(os.tmpdir(), `tp_out_${ts}.mp4`)
-
-            try {
-                await execPromise(
-                    `yt-dlp --no-playlist ` +
-                    `-f "bestvideo[vcodec^=avc1][height<=480]+bestaudio[acodec^=mp4a]/best[vcodec^=avc1][height<=480]/best[height<=480]" ` +
-                    `--merge-output-format mp4 --ffmpeg-location /usr/bin/ffmpeg ` +
-                    `--no-part --retries 3 ` +
-                    `-o "${raw}" "${video.url}"`
-                )
-
-                await execPromise(
-                    `/usr/bin/ffmpeg -y -i "${raw}" ` +
-                    `-c:v libx264 -preset ultrafast -crf 30 ` +
-                    `-vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" ` +
-                    `-c:a aac -b:a 96k -movflags +faststart "${out}"`
-                )
-
-                try { fs.unlinkSync(raw) } catch {}
-
-                const sizeMB = fs.statSync(out).size / (1024 * 1024)
-                if (sizeMB > 64) {
-                    try { fs.unlinkSync(out) } catch {}
-                    return sock.sendMessage(chatId, { text: '❌ Video troppo pesante (>64MB)' }, { quoted: m })
-                }
-
-                await sock.sendMessage(chatId, {
-                    video: fs.readFileSync(out),
-                    mimetype: 'video/mp4',
-                    caption: `🎬 ${short(video.title, 80)}`
-                }, { quoted: m })
-
-                try { fs.unlinkSync(out) } catch {}
-                delete global.tpChoice[sender]
-
-            } catch (e) {
-                try { fs.existsSync(raw) && fs.unlinkSync(raw) } catch {}
-                try { fs.existsSync(out) && fs.unlinkSync(out) } catch {}
-                await sock.sendMessage(chatId, { text: `❌ Errore video: ${e.message}` }, { quoted: m })
-            }
-        }
+        await react('✅');
+      } catch (e) {
+        console.error(`Errore ${command}:`, String(e.stderr || e.message).slice(0, 300));
+        await react('❌');
+        const txt = String(e.stderr || e.message);
+        const msg = e.code === 'ENOENT' ? '⚠️ yt-dlp non è installato (pkg install yt-dlp ffmpeg).'
+          : /403/.test(txt) ? '⚠️ YouTube ha rifiutato il download (403). Riprova tra poco.'
+          : '⚠️ Download non riuscito, riprova.';
+        await reply({ text: msg });
+      } finally {
+        busy--;
+        if (job?.stamp) cleanup(job.stamp);
+      }
+      return;
     }
-}
+
+    if (!query) return reply({ text: `🎤 Scrivi il nome dell'artista.\nEsempio: ${P}tp Sfera Ebbasta` });
+    await react('🔎');
+    let songs;
+    try { songs = await topSongs(query); }
+    catch (e) { await react('❌'); return reply({ text: '⚠️ Ricerca non riuscita, riprova tra poco.' }); }
+    if (!songs.length) { await react('❌'); return reply({ text: `❌ Nessuna canzone trovata per *${query}*.` }); }
+
+    global.tpSongs[skey] = songs;
+
+    const artistName = songs[0].artistName;
+    const imgOf = (t) => (t.artworkUrl100 || '').replace('100x100bb', '600x600bb') || 'https://picsum.photos/600/600';
+
+    const cards = songs.map((t, i) => ({
+      image: imgOf(t),
+      title: cut(`${i + 1}. ${t.trackName}`, 60),
+      body: [t.artistName, t.collectionName ? `💿 ${cut(t.collectionName, 40)}` : '', `⏱️ ${fmtTime(t.trackTimeMillis)}`].filter(Boolean).join(' · '),
+      footer: 'Zeus Music',
+      buttons: [
+        btn.reply('▶️ Riproduci', `${P}tpplay ${i}`),
+        btn.reply('🎬 Manda video', `${P}tpvideo ${i}`)
+      ]
+    }));
+
+    const nativeCards = cards.map((c) => ({
+      image: { url: c.image },
+      title: c.title,
+      body: c.body,
+      footer: c.footer,
+      nativeFlow: c.buttons.map((b) => ({
+        name: 'quick_reply',
+        buttonParamsJson: JSON.stringify({ display_text: b.text, id: b.id })
+      }))
+    }));
+    let sent = false, lastErr = null;
+    for (let attempt = 0; attempt < 2 && !sent; attempt++) {
+      try {
+        await sock.sendMessage(jid, {
+          text: `🎤 *Top 5 — ${artistName}*\nScegli direttamente sulla card 👉`,
+          footer: 'Zeus Music',
+          cards: nativeCards
+        }, { quoted: m });
+        sent = true;
+      } catch (err) {
+        lastErr = err;
+        console.error('Carosello .tp non inviato:', err.message);
+        await new Promise((r) => setTimeout(r, 1200));
+      }
+    }
+    if (!sent) {
+      try {
+        await ctx.sendCards({ text: `🎤 *Top 5 — ${artistName}*`, footer: 'Zeus Music', title: `Top 5 — ${artistName}`, cards });
+        sent = true;
+      } catch (err) { lastErr = err; }
+    }
+    if (!sent) {
+      await react('❌');
+      return reply({ text: `⚠️ Carosello non inviato.\n${String(lastErr?.message || lastErr).slice(0, 150)}` });
+    }
+    await react('✅');
+  }
+};

@@ -81,7 +81,7 @@ module.exports = {
         const status = current ? `Attivo (${current.mode.toUpperCase()})` : 'Disattivo';
         return await sendButtons(sock, jid,
             `🚫 *GESTIONE ANTISPAM*\n\nStato: *${status}*\nLimite: ${SPAM_LIMIT} msg / ${SPAM_WINDOW_MS / 1000}s\n\nScegli:`,
-            'Zeno Bot - Moderazione',
+            'Zeus Bot - Moderazione',
             [
                 { text: '🦵 Modalità Kick', id: 'antispamkick' },
                 { text: '⚠️ Modalità Warn', id: 'antispamwarn' },

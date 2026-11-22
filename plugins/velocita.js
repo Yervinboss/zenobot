@@ -1,7 +1,7 @@
 'use strict'
 
 // ═══════════════════════════════════════════════════════════════
-//  ZENO TOOLS — .velocità (Speed Test di Rete e Sistema)
+//  ZEUS TOOLS — .velocità (Speed Test di Rete e Sistema)
 // ═══════════════════════════════════════════════════════════════
 
 const os = require('os')
@@ -40,7 +40,7 @@ module.exports = {
     category: 'funzioni',
     description: 'Testa la velocità di internet e del telefono',
     usage: '',
-    author: 'ZENO',
+    author: 'ZEUS',
 
     async run(sock, m, args, cmd, ctx) {
         const chatId = m.key.remoteJid
@@ -98,7 +98,7 @@ module.exports = {
             `⏱ Uptime Bot: *${uptimeStr}*`,
             { section: 'ℹ️ Info' },
             `Questo test misura la velocità del telefono su cui gira il bot.`
-        ], { footer: 'ZENO ULTIMATE' })
+        ], { footer: 'ZEUS ULTIMATE' })
 
         // 5. Modifica il messaggio di attesa con i risultati
         try {

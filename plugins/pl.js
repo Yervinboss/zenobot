@@ -115,7 +115,7 @@ async function mergePlaylist(sock, jid, sender, userTracks, m) {
     const listContent = successFiles.map(f => `file '${f.replace(/'/g, "'\\''")}'`).join('\n');
     fs.writeFileSync(listFile, listContent, 'utf8');
     let currentTime = 0;
-    let metaContent = ';FFMETADATA1\ntitle=Playlist Zeno Bot\nartist=Zeno Bot\n\n';
+    let metaContent = ';FFMETADATA1\ntitle=Playlist Zeus Bot\nartist=Zeus Bot\n\n';
     for (let i = 0; i < successFiles.length; i++) {
         const startMs = Math.floor(currentTime * 1000);
         const endMs = Math.floor((currentTime + durations[i]) * 1000);
@@ -137,7 +137,7 @@ async function mergePlaylist(sock, jid, sender, userTracks, m) {
             const audioBuffer = fs.readFileSync(finalM4a);
             await sock.sendMessage(jid, {
                 audio: audioBuffer, mimetype: 'audio/mp4', ptt: false,
-                fileName: `Playlist_Zeno_${new Date().toISOString().slice(0,10)}.m4a`
+                fileName: `Playlist_Zeus_${new Date().toISOString().slice(0,10)}.m4a`
             }, { quoted: m });
             await sock.sendMessage(jid, {
                 text: `✅ *Playlist fusa con successo!*\n\n🎵 *${successFiles.length}* brani con capitoli\n📦 Dimensione: *${sizeMB} MB*\n\n💾 Salva il file e aprilo con VLC / Musicolet per vedere le tracce separate!`,
@@ -188,7 +188,7 @@ async function processQueue(sock, jid, sender) {
             }
             try {
                 let audioBuffer = fs.readFileSync(outputOgg);
-                await sock.sendMessage(jid, { audio: audioBuffer, mimetype: 'audio/mp4', ptt: false, fileName: `${String(track.title || 'Zeno').replace(/[^\w\s.-]/g, '').trim().substring(0, 60) || 'Zeno'}.m4a` });
+                await sock.sendMessage(jid, { audio: audioBuffer, mimetype: 'audio/mp4', ptt: false, fileName: `${String(track.title || 'Zeus').replace(/[^\w\s.-]/g, '').trim().substring(0, 60) || 'Zeus'}.m4a` });
             } catch (e) { console.error(e); }
             finally {
                 if (fs.existsSync(outputOgg)) fs.unlinkSync(outputOgg);
@@ -219,7 +219,7 @@ async function playSingle(sock, jid, sender, track, m) {
             }
             try {
                 let audioBuffer = fs.readFileSync(outputOgg);
-                await sock.sendMessage(jid, { audio: audioBuffer, mimetype: 'audio/mp4', ptt: false, fileName: `${String(track.title || 'Zeno').replace(/[^\w\s.-]/g, '').trim().substring(0, 60) || 'Zeno'}.m4a` }, { quoted: m });
+                await sock.sendMessage(jid, { audio: audioBuffer, mimetype: 'audio/mp4', ptt: false, fileName: `${String(track.title || 'Zeus').replace(/[^\w\s.-]/g, '').trim().substring(0, 60) || 'Zeus'}.m4a` }, { quoted: m });
             } catch (e) { console.error(e); }
             finally { setTimeout(() => { if (fs.existsSync(outputOgg)) fs.unlinkSync(outputOgg); }, 5000); }
         });
@@ -241,7 +241,7 @@ async function askDelete(sock, jid, sender, m) {
 
     return await sock.sendMessage(jid, {
         text: `🗑️ *ELIMINA UN BRANO*\n\nTocca il pulsante e scegli il brano da rimuovere.\n📀 Brani totali: ${userTracks.length}` + (userTracks.length > 10 ? '\n_Per gli altri usa_ `.pl del 12`' : ''),
-        footer: 'Zeno Ultimate • Playlist',
+        footer: 'Zeus Ultimate • Playlist',
         title: '🗑️ Elimina brano',
         buttonText: '🗑️ Scegli brano',
         sections: [{ title: 'I tuoi brani', rows: rows.slice(0, 10).map(r => ({ title: r.title, rowId: r.id, description: r.description })) }],
@@ -514,7 +514,7 @@ module.exports = {
             } catch {}
             return await sock.sendMessage(jid, {
                 text: `🎵 *PLAYLIST DI ${name.toUpperCase()}*\n📀 Brani salvati: *${total}*\n📄 Pagina ${page + 1}/${pages}\n\nTocca il pulsante e scegli cosa fare.`,
-                footer: 'Zeno Bot • Music Playlist',
+                footer: 'Zeus Bot • Music Playlist',
                 title: '🎵 Playlist',
                 buttonText: '📂 Apri playlist',
                 sections: [{ title: 'Azioni', rows: azioni }, { title: `I tuoi brani (${page + 1}/${pages})`, rows: brani }]
@@ -526,12 +526,12 @@ module.exports = {
         try {
             return await sock.sendMessage(jid, {
                 text: `🎵 *PLAYLIST DI ${name.toUpperCase()}*`,
-                footer: 'Zeno Bot',
+                footer: 'Zeus Bot',
                 cards: [{
                     image: { url: pfp },
                     title: `🎵 Playlist di ${name}`,
                     body: `Brani salvati: ${total}\nTocca "Apri playlist" per ascoltare, fondere o eliminare brani.`,
-                    footer: 'Zeno Bot • Music Playlist',
+                    footer: 'Zeus Bot • Music Playlist',
                     buttons: [selectBtn]
                 }],
                 mentions: [sender]
@@ -543,7 +543,7 @@ module.exports = {
                 { buttonId: 'pl_merge', buttonText: { displayText: '🎛️ Fondi playlist' }, type: 1 },
                 { buttonId: 'pl_askdel', buttonText: { displayText: '🗑️ Elimina brano' }, type: 1 }
             ];
-            return await sock.sendMessage(jid, { image: { url: pfp }, caption: `🎵 *PLAYLIST DI ${name.toUpperCase()}*\n📀 Brani: ${total}`, footer: '⚡ Zeno Bot • Music Playlist', buttons, headerType: 4 }, { quoted: m });
+            return await sock.sendMessage(jid, { image: { url: pfp }, caption: `🎵 *PLAYLIST DI ${name.toUpperCase()}*\n📀 Brani: ${total}`, footer: '⚡ Zeus Bot • Music Playlist', buttons, headerType: 4 }, { quoted: m });
         }
     }
 };

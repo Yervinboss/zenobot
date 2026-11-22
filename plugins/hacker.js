@@ -45,7 +45,7 @@ module.exports = {
             `- Galleria (32 GB)`,
             `- Cronologia Chrome`,
             { raw: '_Scherzo! Nessun dato è stato rubato. 😂_' }
-        ], { footer: 'ZENO HACKER' })
+        ], { footer: 'ZEUS HACKER' })
         
         await sock.sendMessage(ctx.chat, { text: result, mentions: [target] }, { edit: msgWait.key })
         await ctx.react('😈')

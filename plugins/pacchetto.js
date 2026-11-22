@@ -104,8 +104,8 @@ module.exports = {
                 await sock.sendMessage(chatId, {
                     cover: bufs[0],
                     stickers: bufs.map(b => ({ data: b, emojis: ['✨'] })),
-                    name: 'ZENO ULTIMATE',
-                    publisher: 'Zeno Bot',
+                    name: 'ZEUS ULTIMATE',
+                    publisher: 'Zeus Bot',
                     description: (pack.name || query).slice(0, 80)
                 }, { quoted: m });
 

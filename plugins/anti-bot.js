@@ -1,6 +1,6 @@
 'use strict'
 
-// ZENO — Antibot
+// ZEUS — Antibot
 //  .antibot                 pannello con tendina
 //  .antibot on | off
 //  .antibot kick | warn     rimuove i bot / cancella e avvisa
@@ -13,7 +13,7 @@ const { pureId, isImmune, sendButtons } = require('../lib/utils')
 const { isOwner } = require('../lib/owner')
 
 const dbPath = path.join(__dirname, '../database/antibot.json')
-const FOOTER = 'Zeno Bot - Moderazione'
+const FOOTER = 'Zeus Bot - Moderazione'
 const TOP = '╭━━━━━━━━━━━━━━━╮'
 const SEP = '┣━━━━━━━━━━━━━━━'
 const END = '╰━━━━━━━━━━━━━━━╯'

@@ -36,7 +36,7 @@ async function sendBjMessage(sock, jid, m, bodyText, senderJid) {
             message: {
                 interactiveMessage: {
                     body: { text: bodyText },
-                    footer: { text: 'Zeno Casino ⚙️' },
+                    footer: { text: 'Zeus Casino ⚙️' },
                     nativeFlowMessage: { buttons },
                     contextInfo: { mentionedJid: [senderJid] }
                 }
@@ -69,7 +69,7 @@ module.exports = {
                 return await sock.sendMessage(jid, { text: `💥 *SBALLATO!* [ ${game.playerHand.join(' | ')} ] — Perdi ${formatMoney(game.bet)}.` }, { quoted: m });
             }
 
-            const body = `🃏 *BLACKJACK ZENO* 🃏\n\n🫵 *Tu:* [ ${game.playerHand.join(' | ')} ] (*${ps}*)\n🏦 *Banco:* [ ${game.dealerHand} | ❓ ]\n\n💰 Puntata: ${formatMoney(game.bet)}`;
+            const body = `🃏 *BLACKJACK ZEUS* 🃏\n\n🫵 *Tu:* [ ${game.playerHand.join(' | ')} ] (*${ps}*)\n🏦 *Banco:* [ ${game.dealerHand} | ❓ ]\n\n💰 Puntata: ${formatMoney(game.bet)}`;
             return await sendBjMessage(sock, jid, m, body, senderJid);
         }
 
@@ -113,7 +113,7 @@ module.exports = {
             return await sock.sendMessage(jid, { text: `👑 *BLACKJACK NATURALE!* Vinci ${formatMoney(bet * 3)}!` }, { quoted: m });
         }
 
-        const body = `🃏 *CASINÒ BLACKJACK ZENO* 🃏\n\n🫵 [ ${global.blackjack[userId].playerHand.join(' | ')} ] (*${ps}*)\n🏦 [ ${d1} | ❓ ]\n\n💰 Puntata: ${formatMoney(bet)}`;
+        const body = `🃏 *CASINÒ BLACKJACK ZEUS* 🃏\n\n🫵 [ ${global.blackjack[userId].playerHand.join(' | ')} ] (*${ps}*)\n🏦 [ ${d1} | ❓ ]\n\n💰 Puntata: ${formatMoney(bet)}`;
         return await sendBjMessage(sock, jid, m, body, senderJid);
     }
 };

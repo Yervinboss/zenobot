@@ -17,7 +17,7 @@ module.exports = {
         await sock.sendMessage(jid, { react: { text: '🔨', key: m.key } });
 
         let msg = await sock.sendMessage(jid, {
-            text: `🛡️ [ZENO BAN-ANTIRAID]: Rilevata violazione dei termini da parte di @${targetId}...`,
+            text: `🛡️ [ZEUS BAN-ANTIRAID]: Rilevata violazione dei termini da parte di @${targetId}...`,
             mentions: [targetJid]
         }, { quoted: m });
         await delay(1200);

@@ -29,7 +29,7 @@ module.exports = {
         await sock.sendMessage(jid, { react: { text: '🏿', key: m.key } });
 
         return await sock.sendMessage(jid, {
-            text: `🏿 *ZENO NEGROMETRO* 🏿\n\n👤 @${targetId}${adminTag}\n📊 Tasso: *${percentuale}%*\n\n📝 _${commento}_\n\n👮 @${senderId}`,
+            text: `🏿 *ZEUS NEGROMETRO* 🏿\n\n👤 @${targetId}${adminTag}\n📊 Tasso: *${percentuale}%*\n\n📝 _${commento}_\n\n👮 @${senderId}`,
             mentions: [targetJid, sender]
         }, { quoted: m });
     }

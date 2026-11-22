@@ -20,7 +20,7 @@ module.exports = (() => {
 
     const SFONDO_PATH = './media/sfondo.jpg';
 
-    // Utility da zeno-menu.js per i media
+    // Utility da zeus-menu.js per i media
     const unwrap = (msg) => {
         let x = msg;
         for (let i = 0; i < 6 && x; i++) {

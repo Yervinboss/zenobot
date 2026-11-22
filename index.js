@@ -1,12 +1,12 @@
 'use strict'
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  ███████╗███████╗███╗   ██╗ ██████╗    U L T I M A T E   B O T
-//  ╚══███╔╝██╔════╝████╗  ██║██╔═══██╗   ─────────────────────────
-//    ███╔╝ █████╗  ██╔██╗ ██║██║   ██║   Core v4.4 • Universal Cards (Android + iPhone)
-//   ███╔╝  ██╔══╝  ██║╚██╗██║██║   ██║
-//  ███████╗███████╗██║ ╚████║╚██████╔╝   Baileys (qualsiasi fork) • Termux
-//  ╚══════╝╚══════╝╚═╝  ╚═══╝ ╚═════╝
+//  ███████╗███████╗██╗   ██╗███████╗    U L T I M A T E   B O T
+//  ╚══███╔╝██╔════╝██║   ██║██╔════╝    ─────────────────────────
+//    ███╔╝ █████╗  ██║   ██║███████╗    Core v4.4 • Universal Cards (Android + iPhone)
+//   ███╔╝  ██╔══╝  ██║   ██║╚════██║
+//  ███████╗███████╗╚██████╔╝███████║    Baileys (qualsiasi fork) • Termux
+//  ╚══════╝╚══════╝ ╚═════╝ ╚══════╝
 // ═══════════════════════════════════════════════════════════════════════════
 
 const fs = require('fs')
@@ -82,7 +82,7 @@ const DEFAULTS = {
     autoBackupIntervalMs: 6 * 60 * 60 * 1000,
     heartbeatIntervalMs: 60 * 1000,
     msgCacheTtlSec: 600,
-    theme: 'zeno',
+    theme: 'zeus',
     cardMode: 'auto',             // auto | universal | carousel | album | stack | buttons | text
     library: '@itsliaaa/baileys', // libreria WhatsApp (cambiabile: @whiskeysockets/baileys, @itsukichan/baileys…)
     iosMode: 'compat',            // card su iPhone/Web/Desktop: compat (testato) | universal | album | stack | text
@@ -93,10 +93,10 @@ const DEFAULTS = {
     universalTextFirst: true,     // su universal invia prima il testo normale (così su iPhone si vede sempre qualcosa)
     carouselStyle: 'native',      // come costruire il carosello: native | flat | biz | bare | wrap (prova con .carotest)
     cardImage: 'https://i.postimg.cc/266mKgQj/lv-0-20260913184208.jpg',
-    cardFooter: 'ZENO ULTIMATE',
+    cardFooter: 'ZEUS ULTIMATE',
     cardsPerPage: 10,
     stackMax: 8,
-    botName: 'ZENO ULTIMATE',
+    botName: 'ZEUS ULTIMATE',
     version: '4.6.0'
 }
 let CONFIG = { ...DEFAULTS }
@@ -105,6 +105,13 @@ try {
         const saved = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'))
         CONFIG = { ...DEFAULTS, ...saved }
         CONFIG.version = DEFAULTS.version
+        // migrazione nome: vecchie config.json con "Zeno" → "Zeus"
+        let _renamed = false
+        for (const k of ['botName', 'cardFooter']) {
+            if (typeof CONFIG[k] === 'string' && /zeno/i.test(CONFIG[k])) { CONFIG[k] = CONFIG[k].replace(/ZENO/g, 'ZEUS').replace(/Zeno/g, 'Zeus').replace(/zeno/g, 'zeus'); _renamed = true }
+        }
+        if (CONFIG.theme === 'zeno') { CONFIG.theme = 'zeus'; _renamed = true }
+        if (_renamed) fs.writeFileSync(CONFIG_FILE, JSON.stringify(CONFIG, null, 4))
         if ((saved.configRev || 0) < 4) { CONFIG.iosMode = 'compat'; CONFIG.cardMode = 'auto'; CONFIG.configRev = 4; saved.configRev = 4; fs.writeFileSync(CONFIG_FILE, JSON.stringify(CONFIG, null, 4)) }
         if (Object.keys(DEFAULTS).some(k => !(k in saved) && k !== 'version')) {
             fs.writeFileSync(CONFIG_FILE, JSON.stringify(CONFIG, null, 4))
@@ -149,7 +156,7 @@ const now = () => Date.now()
 
 const stripAnsi = (s) => String(s).replace(/\x1b\[[0-9;]*m/g, '')
 const vlen = (s) => [...stripAnsi(s)].length
-const LOG_FILE = path.join(CONFIG.logsDir, `zeno-${new Date().toISOString().slice(0, 10)}.log`)
+const LOG_FILE = path.join(CONFIG.logsDir, `zeus-${new Date().toISOString().slice(0, 10)}.log`)
 
 function rotateLogIfNeeded() {
     try {
@@ -208,12 +215,12 @@ const log = {
     }
 }
 const ASCII = [
-    '███████╗███████╗███╗   ██╗ ██████╗ ',
-    '╚══███╔╝██╔════╝████╗  ██║██╔═══██╗',
-    '  ███╔╝ █████╗  ██╔██╗ ██║██║   ██║',
-    ' ███╔╝  ██╔══╝  ██║╚██╗██║██║   ██║',
-    '███████╗███████╗██║ ╚████║╚██████╔╝',
-    '╚══════╝╚══════╝╚═╝  ╚═══╝ ╚═════╝ '
+    '███████╗███████╗██╗   ██╗███████╗',
+    '╚══███╔╝██╔════╝██║   ██║██╔════╝',
+    '  ███╔╝ █████╗  ██║   ██║███████╗',
+    ' ███╔╝  ██╔══╝  ██║   ██║╚════██║',
+    '███████╗███████╗╚██████╔╝███████║',
+    '╚══════╝╚══════╝ ╚═════╝ ╚══════╝'
 ]
 const GRAD = [213, 207, 171, 135, 99, 63]
 const makeBanner = () => {
@@ -339,7 +346,7 @@ const fmtBytes = (b) => {
 }
 
 const THEMES = {
-    zeno: {
+    zeus: {
         top: (t) => `╭━━━━〔 ✦ *${t}* ✦ 〕━━━━⬣`,
         sub: (t) => `┣━〔 ${t} 〕`,
         side: '┃', bullet: '✧',
@@ -398,7 +405,7 @@ const STATUS_STYLE = {
 
 const ui = {
     themes: THEMES,
-    theme: () => THEMES[CONFIG.theme] || THEMES.zeno,
+    theme: () => THEMES[CONFIG.theme] || THEMES.zeus,
 
     box(title, lines = [], { footer, plain = false } = {}) {
         const t = ui.theme()
@@ -1214,7 +1221,7 @@ const primaryCmd = (p) => p.commands.find(c => typeof c === 'string') || p.name
 
 const corePlugins = [
     {
-        commands: ['menu'], name: 'menu', category: 'sistema', author: 'ZENO',
+        commands: ['menu'], name: 'menu', category: 'sistema', author: 'ZEUS',
         description: 'Menu automatico a card con tutte le categorie', usage: '[categoria]',
         async run(sock, m, args, cmd, ctx) {
             const want = (args[0] || '').toLowerCase()
@@ -1281,7 +1288,7 @@ const corePlugins = [
         }
     },
     {
-        commands: ['help', 'aiuto'], name: 'help', category: 'sistema', author: 'ZENO',
+        commands: ['help', 'aiuto'], name: 'help', category: 'sistema', author: 'ZEUS',
         description: 'Dettagli su un comando', usage: '<comando>', minArgs: 1,
         async run(sock, m, args, cmd, ctx) {
             const p = findPlugin(args[0].replace(/^[^a-z0-9]+/i, ''))
@@ -1300,7 +1307,7 @@ const corePlugins = [
         }
     },
     {
-        commands: ['ping'], name: 'ping', category: 'sistema', author: 'ZENO',
+        commands: ['ping'], name: 'ping', category: 'sistema', author: 'ZEUS',
         description: 'Latenza e uptime del bot',
         async run(sock, m, args, cmd, ctx) {
             const t0 = now()
@@ -1310,7 +1317,7 @@ const corePlugins = [
         }
     },
     {
-        commands: ['status', 'stato', 'info'], name: 'status', category: 'sistema', author: 'ZENO',
+        commands: ['status', 'stato', 'info'], name: 'status', category: 'sistema', author: 'ZEUS',
         description: 'Stato completo del bot',
         async run(sock, m, args, cmd, ctx) {
             const mem = process.memoryUsage()
@@ -1331,7 +1338,7 @@ const corePlugins = [
         }
     },
     {
-        commands: ['top'], name: 'top', category: 'sistema', author: 'ZENO',
+        commands: ['top'], name: 'top', category: 'sistema', author: 'ZEUS',
         description: 'Classifica comandi e utenti più attivi',
         async run(sock, m, args, cmd, ctx) {
             const top = (obj, n = 5) => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n)
@@ -1345,7 +1352,7 @@ const corePlugins = [
         }
     },
     {
-        commands: ['cardmode'], name: 'cardmode', category: 'sistema', author: 'ZENO',
+        commands: ['cardmode'], name: 'cardmode', category: 'sistema', author: 'ZEUS',
         description: 'Scegli come vedere card e menu (auto/compat/universal/carousel/album/stack/buttons/text)',
         usage: '[modalità]',
         async run(sock, m, args, cmd, ctx) {
@@ -1377,7 +1384,7 @@ const corePlugins = [
         }
     },
     {
-        commands: ['cardtest'], name: 'cardtest', category: 'sistema', author: 'ZENO',
+        commands: ['cardtest'], name: 'cardtest', category: 'sistema', author: 'ZEUS',
         description: 'Prova le card sul tuo telefono', usage: '[modalità|all|list]',
         async run(sock, m, args, cmd, ctx) {
             const arg0 = (args[0] || '').toLowerCase()
@@ -1413,7 +1420,7 @@ const corePlugins = [
         }
     },
     {
-        commands: ['carotest'], name: 'carotest', category: 'sistema', author: 'ZENO',
+        commands: ['carotest'], name: 'carotest', category: 'sistema', author: 'ZEUS',
         description: 'Prova gli stili di carosello sul tuo telefono', usage: '[stile|all]',
         async run(sock, m, args, cmd, ctx) {
             const want = (args[0] || 'all').toLowerCase()
@@ -1437,7 +1444,7 @@ const corePlugins = [
         }
     },
     {
-        commands: ['carostyle'], name: 'carostyle', category: 'sistema', author: 'ZENO', ownerOnly: true,
+        commands: ['carostyle'], name: 'carostyle', category: 'sistema', author: 'ZEUS', ownerOnly: true,
         description: 'Scegli lo stile del carosello e attivalo su iPhone', usage: '[stile|ios on|ios off]',
         async run(sock, m, args, cmd, ctx) {
             const a0 = (args[0] || '').toLowerCase()
@@ -1455,7 +1462,7 @@ const corePlugins = [
         }
     },
     {
-        commands: ['cardnodes'], name: 'cardnodes', category: 'sistema', author: 'ZENO', ownerOnly: true,
+        commands: ['cardnodes'], name: 'cardnodes', category: 'sistema', author: 'ZEUS', ownerOnly: true,
         description: 'Profilo dei nodi iOS per le card (full/biz/off)', usage: '[full|biz|off]',
         async run(sock, m, args, cmd, ctx) {
             const want = (args[0] || '').toLowerCase()
@@ -1472,8 +1479,8 @@ const corePlugins = [
         }
     },
     {
-        commands: ['theme', 'tema'], name: 'theme', category: 'sistema', author: 'ZENO', ownerOnly: true,
-        description: 'Cambia lo stile dei riquadri', usage: '[zeno|neon|soft|minimal]',
+        commands: ['theme', 'tema'], name: 'theme', category: 'sistema', author: 'ZEUS', ownerOnly: true,
+        description: 'Cambia lo stile dei riquadri', usage: '[zeus|neon|soft|minimal]',
         async run(sock, m, args, cmd, ctx) {
             const want = (args[0] || '').toLowerCase()
             if (THEMES[want]) { CONFIG.theme = want; saveConfig() }
@@ -1486,7 +1493,7 @@ const corePlugins = [
         }
     },
     {
-        commands: ['panel', 'pannello'], name: 'panel', category: 'sistema', author: 'ZENO',
+        commands: ['panel', 'pannello'], name: 'panel', category: 'sistema', author: 'ZEUS',
         ownerOnly: true, description: 'Pannello owner: stato, plugin ed errori', usage: '',
         async run(sock, m, args, cmd, ctx) {
             const mem = process.memoryUsage()
@@ -1513,7 +1520,7 @@ const corePlugins = [
         }
     },
     {
-        commands: ['plugins', 'plugin'], name: 'plugins', category: 'sistema', author: 'ZENO', ownerOnly: true,
+        commands: ['plugins', 'plugin'], name: 'plugins', category: 'sistema', author: 'ZEUS', ownerOnly: true,
         description: 'Elenco plugin, attiva/disattiva', usage: '[on|off <nome>]',
         async run(sock, m, args, cmd, ctx) {
             const act = (args[0] || '').toLowerCase()
@@ -1528,7 +1535,7 @@ const corePlugins = [
         }
     },
     {
-        commands: ['reload'], name: 'reload', category: 'sistema', author: 'ZENO', ownerOnly: true,
+        commands: ['reload'], name: 'reload', category: 'sistema', author: 'ZEUS', ownerOnly: true,
         description: 'Ricarica tutti i plugin',
         async run(sock, m, args, cmd, ctx) {
             const t0 = now()
@@ -1935,8 +1942,37 @@ const retryCache = new NodeCache()
 const logger = pino({ level: 'silent' })
 let currentSock = null
 
+let LOGIN_MODE = CONFIG.pairing ? 'code' : null
+let PAIR_NUMBER = NUMERO
+
+// Menu di collegamento: 1 = QR, 2 = codice di abbinamento
+function askLogin() {
+    return new Promise((resolve) => {
+        if (!process.stdin.isTTY) return resolve({ mode: 'qr' })
+        const rl = require('readline').createInterface({ input: process.stdin, output: process.stdout })
+        const ask = (q) => new Promise(r => rl.question(q, r))
+        ;(async () => {
+            console.log(`\n${C.bold}${fg(220)}  COME VUOI COLLEGARE IL BOT?${C.reset}`)
+            console.log(`  ${C.bold}1${C.reset} → QR code (scansioni con un altro telefono)`)
+            console.log(`  ${C.bold}2${C.reset} → Codice di abbinamento (scrivi il numero e inserisci il codice)\n`)
+            let scelta = ''
+            while (scelta !== '1' && scelta !== '2') scelta = (await ask('  Digita 1 o 2: ')).trim()
+            if (scelta === '1') { rl.close(); return resolve({ mode: 'qr' }) }
+            let num = ''
+            while (num.length < 8) num = (await ask('  Numero del bot con prefisso, senza + (es. 393331234567): ')).replace(/\D/g, '')
+            rl.close()
+            resolve({ mode: 'code', numero: num })
+        })()
+    })
+}
+
 async function start() {
     const { state, saveCreds } = await useMultiFileAuthState(CONFIG.sessionDir)
+    if (!state.creds?.registered && !LOGIN_MODE) {
+        const r = await askLogin()
+        LOGIN_MODE = r.mode
+        if (r.numero) PAIR_NUMBER = r.numero
+    }
     let version
     try {
         version = (await safeRequire('./lib/waversion', { getWaVersion: fetchLatestBaileysVersion }).getWaVersion(fetchLatestBaileysVersion)) || undefined
@@ -1956,10 +1992,10 @@ async function start() {
 
     sock.ev.on('creds.update', saveCreds)
 
-    if (CONFIG.pairing && !state.creds?.registered) {
+    if (LOGIN_MODE === 'code' && !state.creds?.registered) {
         setTimeout(async () => {
             try {
-                const code = await sock.requestPairingCode(NUMERO)
+                const code = await sock.requestPairingCode(PAIR_NUMBER)
                 log.box('CODICE DI ABBINAMENTO', [`${C.bold}${fg(220)}${code}${C.reset}`, `${C.dim}WhatsApp → Dispositivi collegati → Collega con numero${C.reset}`], 220)
             } catch (e) { log.err(`pairing: ${e.message}`) }
         }, 3000)
@@ -1993,8 +2029,6 @@ async function start() {
             try { if (res?.key?.id && res.message) msgStore.set(res.key.id, res.message) } catch {}
             return res
         })
-        try { if (res?.key?.id && res.message) msgStore.set(res.key.id, res.message) } catch {}
-        return res
     }
 
     const _gm = sock.groupMetadata.bind(sock)
@@ -2040,7 +2074,7 @@ async function start() {
     }
 
     sock.ev.on('connection.update', ({ connection, lastDisconnect, qr }) => {
-        if (qr) {
+        if (qr && LOGIN_MODE !== 'code') {
             log.box('SCANSIONA IL QR', [`${C.dim}WhatsApp → Dispositivi collegati → Collega un dispositivo${C.reset}`], 81)
             require('qrcode-terminal').generate(qr, { small: true })
         }
@@ -2252,7 +2286,7 @@ async function start() {
 
         const groupName = await getGroupName(chatJid)
         const ctx = await buildContext(sock, m, args, cmd, p, groupName, argsText)
-        const chain = [...(global.ZENO?.middlewares || []), ...p.middleware]
+        const chain = [...(global.ZEUS?.middlewares || []), ...p.middleware]
 
         const t0 = now()
         if (CONFIG.autoTyping) sock.sendPresenceUpdate('composing', chatJid).catch(() => {})
@@ -2359,7 +2393,7 @@ const shutdown = (sig) => {
 process.on('SIGINT',  () => shutdown('SIGINT'))
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 
-global.ZENO = {
+global.ZEUS = {
     CONFIG, C, log,
     db, bus, scheduler,
     ui, btn, cards: cardsApi,
