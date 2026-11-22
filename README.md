@@ -1,7 +1,7 @@
 
 <div align="center">
 
-<img src="https://i.postimg.cc/W146QG4m/lv-0-20261122161421.jpg" alt="ZEUS ULTIMATE" width="100%" style="border-radius: 15px;" />
+<img src="https://i.postimg.cc/266mKgQj/lv-0-20260913184208.jpg" alt="ZEUS ULTIMATE" width="100%" style="border-radius: 15px;" />
 
 <br><br>
 
