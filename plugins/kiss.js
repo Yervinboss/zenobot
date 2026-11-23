@@ -21,7 +21,7 @@ module.exports = {
     if (fs.existsSync('./media/bacio.jpg')) loc.jpegThumbnail = fs.readFileSync('./media/bacio.jpg')
 
     const card = {
-      key: { participants: '0@s.whatsapp.net', fromMe: false, id: 'Halo' },
+      key: { remoteJid: jid, fromMe: false, id: 'Halo' },
       message: { locationMessage: loc },
       participant: '0@s.whatsapp.net'
     }
