@@ -1968,7 +1968,7 @@ function askLogin() {
 
 async function start() {
     const { state, saveCreds } = await useMultiFileAuthState(CONFIG.sessionDir)
-    if (!state.creds?.registered && !LOGIN_MODE) {
+    if (!state.creds?.me && !LOGIN_MODE) {
         const r = await askLogin()
         LOGIN_MODE = r.mode
         if (r.numero) PAIR_NUMBER = r.numero
@@ -1992,7 +1992,7 @@ async function start() {
 
     sock.ev.on('creds.update', saveCreds)
 
-    if (LOGIN_MODE === 'code' && !state.creds?.registered) {
+    if (LOGIN_MODE === 'code' && !state.creds?.me) {
         setTimeout(async () => {
             try {
                 const code = await sock.requestPairingCode(PAIR_NUMBER)
